@@ -7,7 +7,7 @@ Incluye:
   2. Generación de HTML mensual interactivo
   3. HTML mensual con imágenes embebidas
   4. Comparación lado a lado de dos provincias
-  5. Mapa relativo (viajes por mil habitantes)
+  5. Mapa relativo (viajes por mil habitantes) incrustado en la web
   6. GIF animado del mes
 
 Requisitos clave en requirements.txt:
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import streamlit as st
 import streamlit.components.v1 as components
-from streamlit_folium import st_folium  # para otros modos
+from streamlit_folium import st_folium  # utilizado en algunos modos
 
 from funciones_app import (
     graficaTransportesDia,
@@ -200,17 +200,19 @@ elif op == opciones[3]:
         ruta = show_progress(comparar_mapas(c1, m1, s1, c2, m2, s2, z))
         st.success(f"HTML comparativo generado: {ruta}")
 
-# 5) Mapa relativo por habitante
+# 5) Mapa relativo por habitante (ahora incrustado)
 # ------------------------------------------------
 elif op == opciones[4]:
-    c = st.text_input("Provincia")
-    d = st.number_input
+    c = st.text    c = st.text_input("Provincia")
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     if st.button("Generar"):
-        ruta = show_progress(mapa_transportes_relativo(c, d, m_, s, open_browser=True))
-        st.success(f"Mapa generado: {ruta}")
+        ruta = show_progress(mapa_transportes_relativo(c, d, m_, s, open_browser=False))
+        if ruta:
+            html = Path(ruta).read_text(encoding="utf-8")
+            components.html(html, width=760, height=560, scrolling=False)
+            st.success("Mapa relativo incrustado arriba ✅")
 
 # 6) GIF animado del mes
 # ------------------------------------------------
@@ -223,3 +225,4 @@ elif op == opciones[5]:
     if st.button("Generar"):
         ruta = show_progress(exportar_mapa_gif(c, m_, s, z, secs, open_browser=True))
         st.success(f"GIF generado: {ruta}")
+
