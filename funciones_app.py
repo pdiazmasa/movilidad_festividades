@@ -182,112 +182,113 @@ def detectar_campo_provincia(gdf, df_transport):
 # In[79]:
 
 
-def graficaTransportesDia(ciudad, dia, mes, sensibilidad_color=3, zoom=6):
+def graficaTransportesDia(ciudad, dia, mes,
+                          sensibilidad_color: int = 3,
+                          zoom: int = 6,
+                          dpi_scale: float = 1.0):
     """
-    Genera un mapa Folium y lo devuelve como objeto para mostrar en Streamlit.
-    Funciona como generator: emite porcentajes de progreso y al final devuelve el mapa.
+    Genera un folium.Map.  Funciona como generador que va rindiendo progreso
+    (0–100) y, al final, devuelve el objeto mapa.
+
+    Parámetros nuevos
+    -----------------
+    dpi_scale : float
+        Factor multiplicador para el tamaño de las fuentes de los overlays
+        (título y leyenda).  Útil cuando se capturan PNG de alta resolución
+        con Selenium; en render interactivo normal usa el valor por defecto 1.0.
     """
 
     mes = int(mes)
     transporte_file = DATOS_DIR / f"{ciudad.lower()}-{mes:02}.xlsx"
     georef_file     = DATOS_DIR / "georef-spain-provincia.geojson"
 
-    # 0%: inicio
     yield 0
-
-    # Comprobaciones de existencia
     if not georef_file.exists():
-        raise FileNotFoundError(f"No se encuentra el georef: {georef_file}")
+        raise FileNotFoundError(georef_file)
     if not transporte_file.exists():
-        raise FileNotFoundError(f"No se encuentra el Excel: {transporte_file}")
-
-    # 10%: comprobaciones hechas
+        raise FileNotFoundError(transporte_file)
     yield 10
 
-    # Carga de datos
     gdf_provincias = gpd.read_file(georef_file)
     df_transporte  = pd.read_excel(transporte_file)
-
-    # 30%: datos cargados
     yield 30
 
-    # Filtrar por día y agregar viajes
     df_dia = df_transporte[df_transporte["dia"] == dia]
     if df_dia.empty:
-        raise ValueError(f"No hay datos para el día {dia} en {transporte_file.name}")
-
+        raise ValueError(f"No hay datos para el día {dia}")
     df_agg = (
-        df_dia.groupby("provincia origen", as_index=False)["viajes"].sum()
-             .assign(prov_std=lambda d: d["provincia origen"].apply(standardize_province_name))
+        df_dia.groupby("provincia origen", as_index=False)["viajes"]
+              .sum()
+              .assign(prov_std=lambda d: d["provincia origen"]
+                                         .apply(standardize_province_name))
     )
 
     best_field = detectar_campo_provincia(gdf_provincias, df_agg)
     if best_field is None:
-        raise RuntimeError("No se detectó un campo provincia válido en el geojson")
+        raise RuntimeError("No se detectó campo provincia válido")
 
-    gdf_provincias["prov_std"] = gdf_provincias[best_field].apply(standardize_province_name)
-    gdf_merged = gdf_provincias.merge(df_agg[["prov_std", "viajes"]], on="prov_std", how="left")
+    gdf_provincias["prov_std"] = gdf_provincias[best_field]\
+                                    .apply(standardize_province_name)
+    gdf_merged = gdf_provincias.merge(
+        df_agg[["prov_std", "viajes"]], on="prov_std", how="left"
+    )
     gdf_merged["viajes"] = gdf_merged["viajes"].fillna(0)
-
-    # 50%: agregación lista
     yield 50
 
-    # Crear mapa base
-    max_viajes = gdf_merged["viajes"].max()
-    centro = gdf_merged.to_crs("EPSG:3857").geometry.centroid.unary_union.centroid
-    centro_latlon = (
-        gpd.GeoSeries([centro], crs="EPSG:3857")
-           .to_crs("EPSG:4326")
-           .iloc[0]
-    )
-    mapa = folium.Map(location=[centro_latlon.y, centro_latlon.x], zoom_start=zoom)
-
-    # 60%: mapa inicializado
+    max_viajes   = gdf_merged["viajes"].max()
+    centro       = gdf_merged.to_crs("EPSG:3857").geometry.centroid\
+                              .unary_union.centroid
+    latlon_ctr   = gpd.GeoSeries([centro], crs="EPSG:3857")\
+                        .to_crs("EPSG:4326").iloc[0]
+    mapa = folium.Map(location=[latlon_ctr.y, latlon_ctr.x], zoom_start=zoom)
     yield 60
 
-    # Overlay superior
-    template_sup = """
-    {% macro html(this, kwargs) %}
+    # ---------- overlays con ajuste dpi_scale ----------------------------
+    font_sup    = round(14 * dpi_scale, 1)
+    font_legend = round(13 * dpi_scale, 1)
+
+    tpl_sup = f"""
+    {{% macro html(this, kwargs) %}}
       <div style="position:fixed; top:10px; left:50%; transform:translate(-50%,0);
                   z-index:9999; background:white; padding:8px 12px;
                   border:2px solid grey; border-radius:4px;
-                  font-size:14px; white-space:nowrap;">
+                  font-size:{font_sup}px; white-space:nowrap;">
         Ciudad: {{this.ciudad}} | Mes: {{this.mes}} | Sensibilidad: {{this.sensibilidad}}
       </div>
-    {% endmacro %}
+    {{% endmacro %}}
     """
-    macro_sup = MacroElement()
-    macro_sup._template = Template(template_sup)
-    macro_sup.ciudad = ciudad
-    macro_sup.mes = mes
-    macro_sup.sensibilidad = sensibilidad_color
-    mapa.get_root().add_child(macro_sup)
-
-    # 70%: overlay listo
+    m_sup = MacroElement()
+    m_sup._template   = Template(tpl_sup)
+    m_sup.ciudad      = ciudad
+    m_sup.mes         = mes
+    m_sup.sensibilidad = sensibilidad_color
+    mapa.get_root().add_child(m_sup)
     yield 70
 
-    # Añadir GeoJson con estilo y tooltip
     estudio_std = standardize_province_name(ciudad)
+
     def style_function(feat):
         prov = standardize_province_name(feat["properties"].get(best_field, ""))
         if prov == estudio_std:
             fill = "#66f26a"
         else:
-            fill = get_fill_color(feat["properties"].get("viajes", 0), max_viajes, sensibilidad_color)
+            fill = get_fill_color(feat["properties"].get("viajes", 0),
+                                  max_viajes, sensibilidad_color)
         return {"fillColor": fill, "color": "blue", "weight": 1, "fillOpacity": 1}
 
     folium.GeoJson(
         gdf_merged,
         style_function=style_function,
-        tooltip=folium.features.GeoJsonTooltip(fields=[best_field, "viajes"],
-                                               aliases=["Provincia", "Viajes"])
+        tooltip=folium.features.GeoJsonTooltip(
+            fields=[best_field, "viajes"],
+            aliases=["Provincia", "Viajes"]
+        )
     ).add_to(mapa)
 
-    # Leyenda fija
-    legend_html = """
+    legend_html = f"""
     <div style="position:fixed; bottom:10px; left:10px; width:260px; height:110px;
                 background:white; border:2px solid grey; border-radius:4px;
-                padding:10px; font-size:13px; z-index:9999;">
+                padding:10px; font-size:{font_legend}px; z-index:9999;">
       <b>🗺️ Leyenda</b><br><br>
       <i style="background:#336699;width:12px;height:12px;display:inline-block;margin-right:5px;"></i>
         <b>Azul</b>: Provincias de origen<br>
@@ -297,12 +298,10 @@ def graficaTransportesDia(ciudad, dia, mes, sensibilidad_color=3, zoom=6):
     </div>
     """
     mapa.get_root().html.add_child(folium.Element(legend_html))
-
-    # 90%: geojson y leyenda añadidos
     yield 90
 
-    # 100%: en lugar de guardar o abrir, devolvemos el mapa
-    yield mapa
+    yield mapa   # 100 %
+
 
 
 
@@ -395,6 +394,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 import base64, json, time
 from tempfile import TemporaryDirectory
+
 
 def exportar_mapa_con_imagenes_mes(ciudad, mes,
                                    sensibilidad_color=3, zoom=7):
