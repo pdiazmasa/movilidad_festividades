@@ -487,7 +487,6 @@ function chg(v){{document.getElementById('lbl').textContent=v;
     yield output_html   # devuelve la ruta al HTML
 
 
-
 # In[85]:
 
 
