@@ -10,3 +10,4 @@ imageio
 ipywidgets
 widgetsnbextension
 pyogrio
+openpyxl
