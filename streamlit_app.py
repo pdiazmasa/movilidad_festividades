@@ -41,35 +41,6 @@ if getattr(sys, "frozen", False):
 st.set_page_config(page_title="Panel de Movilidad", page_icon="🧭")
 st.title("🗺️ GENERADOR DE MAPAS 🗺️")
 
-op = st.sidebar.radio("Elige función", [
-    "🗓️ Mapa interactivo de un día",
-    "📅 Mapa Interactivo de un mes",
-    "🖼️ Mapa de un mes con imágenes",
-    "🆚 Comparar dos mapas",
-    "📊 Mapa relativo de un día",
-    "🎞️ GIF de un mes",
-])
-
-titles = {
-    "🗓️ Mapa interactivo de un día":     "Transporte Día",
-    "📅 Mapa Interactivo de un mes":     "Mapa Interactivo Mensual",
-    "🖼️ Mapa de un mes con imágenes":    "Mapa Mensual con Imágenes",
-    "🆚 Comparar dos mapas":             "Comparación de Ciudades",
-    "📊 Mapa relativo de un día":        "Transporte Relativo por Habitante",
-    "🎞️ GIF de un mes":                 "GIF Animado del Mes",
-}
-descs = {
-    "🗓️ Mapa interactivo de un día":     "Colorea las provincias según volumen de viajes en un día concreto.",
-    "📅 Mapa Interactivo de un mes":     "Genera un HTML con todos los días y un slider para navegar entre ellos.",
-    "🖼️ Mapa de un mes con imágenes":    "Toma capturas PNG diarias e incrústalas en un HTML con slider.",
-    "🆚 Comparar dos mapas":             "Muestra lado a lado dos provincias para un rango de días común.",
-    "📊 Mapa relativo de un día":        "Colorea según viajes por mil habitantes, resaltando la provincia destino.",
-    "🎞️ GIF de un mes":                 "Crea un GIF animado con la evolución diaria del mes.",
-}
-
-st.header(titles[op])
-st.markdown(descs[op])
-
 for k in ("mapa_dia", "params_dia"):
     st.session_state.setdefault(k, None)
 
