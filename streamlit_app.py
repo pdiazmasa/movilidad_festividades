@@ -203,7 +203,7 @@ elif op == opciones[3]:
 # 5) Mapa relativo por habitante (ahora incrustado)
 # ------------------------------------------------
 elif op == opciones[4]:
-    c = st.text    c = st.text_input("Provincia")
+    c = st.text_input("Provincia")
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
