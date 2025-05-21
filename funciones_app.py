@@ -503,164 +503,141 @@ function chg(v){{
 # In[85]:
 
 
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+import base64, json, time
+from tempfile import TemporaryDirectory
+
 def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
-                   ciudad_2, mes_2, sensibilidad_2, zoom=6):
+                   ciudad_2, mes_2, sensibilidad_2,
+                   zoom: int = 6):
     """
-    Compara dos series de mapas diarios (ciudad/mes/sensibilidad) lado a lado.
-    Funciona como generator: emite progreso basado en la generación de capturas
-    (2 por día) y, al final, devuelve la ruta al HTML abierto en el navegador.
+    Compara dos series de mapas diarios lado a lado.
+    Genera capturas PNG Hi-DPI de cada día para ambas provincias
+    y devuelve la ruta del HTML comparativo.  Progreso: 0-100.
     """
 
-    # 0%: inicio
-    yield 0
+    yield 0  # inicio
 
-    # ── Rutas de entrada / salida ───────────────────────────────────────
-    transporte_1 = DATOS_DIR / f"{ciudad_1.lower()}-{int(mes_1):02}.xlsx"
-    transporte_2 = DATOS_DIR / f"{ciudad_2.lower()}-{int(mes_2):02}.xlsx"
-    output_html  = RESULTADOS_DIR / f"comparar_{ciudad_1}_{mes_1}_{ciudad_2}_{mes_2}.html"
+    # ── rutas de entrada / salida ────────────────────────────────────
+    t1 = DATOS_DIR / f"{ciudad_1.lower()}-{int(mes_1):02}.xlsx"
+    t2 = DATOS_DIR / f"{ciudad_2.lower()}-{int(mes_2):02}.xlsx"
+    out = RESULTADOS_DIR / f"comparar_{ciudad_1}_{mes_1}_{ciudad_2}_{mes_2}.html"
 
-    # 5%: comprobar existencia de ficheros
-    if not transporte_1.exists():
-        raise FileNotFoundError(f"No se encontró {transporte_1}")
-    if not transporte_2.exists():
-        raise FileNotFoundError(f"No se encontró {transporte_2}")
+    if not t1.exists(): raise FileNotFoundError(t1)
+    if not t2.exists(): raise FileNotFoundError(t2)
     yield 5
 
-    # ── Cargar datos y rangos comunes ──────────────────────────────────
-    df1 = pd.read_excel(transporte_1)
-    df2 = pd.read_excel(transporte_2)
-    if "dia" not in df1.columns or "dia" not in df2.columns:
-        raise ValueError("Alguno de los Excel no contiene la columna 'dia'")
+    # ── días comunes ────────────────────────────────────────────────
+    d1 = sorted(pd.read_excel(t1)["dia"].dropna().unique())
+    d2 = sorted(pd.read_excel(t2)["dia"].dropna().unique())
+    if not d1 or not d2: raise ValueError("No hay días en uno de los archivos")
 
-    dias1 = sorted(df1["dia"].dropna().unique())
-    dias2 = sorted(df2["dia"].dropna().unique())
-    if not dias1 or not dias2:
-        raise ValueError("No hay días disponibles en uno de los archivos")
+    s_min, s_max = max(d1[0], d2[0]), min(d1[-1], d2[-1])
+    if s_min > s_max: raise ValueError("No hay días comunes")
 
-    slider_min = max(dias1[0], dias2[0])
-    slider_max = min(dias1[-1], dias2[-1])
-    if slider_min > slider_max:
-        raise ValueError("No hay días comunes entre los archivos")
+    dias = list(range(int(s_min), int(s_max) + 1))
+    yield 15
 
-    dias_slider = list(range(int(slider_min), int(slider_max) + 1))
-    yield 15  # datos cargados y filtrados
+    # ── parámetros Hi-DPI ───────────────────────────────────────────
+    W, H            = 2560, 1440
+    DEVICE_SCALE    = 2
+    TARGET_DISPLAY  = 960      # cada lado ocupa la mitad del ancho 1920
+    base_scale      = (W * DEVICE_SCALE) / TARGET_DISPLAY   # ≈ 5.33
+    dpi_scale       = base_scale * 0.5      # un poco más pequeño
 
-    # ── Configurar Selenium headless ──────────────────────────────────
+    # ── Selenium headless ───────────────────────────────────────────
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--window-size=1920,1080")         # antes 1920×1080
-    opts.add_argument("--force-device-scale-factor=2")   # Hi-DPI 2×
-    service = Service("/usr/bin/chromedriver")
-    driver  = webdriver.Chrome(service=service, options=opts)
-    yield 20  # Selenium listo
+    opts.add_argument(f"--window-size={W},{H}")
+    opts.add_argument(f"--force-device-scale-factor={DEVICE_SCALE}")
+    driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"),
+                              options=opts)
+    yield 20
 
     img_left, img_right = {}, {}
-    total_steps = len(dias_slider) * 2
+    total_steps = len(dias) * 2
     step = 0
 
-    # ── Generar capturas ───────────────────────────────────────────────
-    with TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-        for dia in dias_slider:
-            # ---- Mapa izquierda ----
-            gen1 = graficaTransportesDia(
-                ciudad_1, dia, mes_1, sensibilidad_1, zoom,
-                open_browser=False
-            )
-            path1 = None
-            for path1 in gen1:
-                pass
-            driver.get(path1.as_uri())
-            time.sleep(2)
-            png1 = tmpdir / f"{ciudad_1}_{mes_1}_{dia}.png"
-            driver.save_screenshot(str(png1))
-            img_left[str(dia)] = base64.b64encode(png1.read_bytes()).decode("utf-8")
+    with TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        for dia in dias:
+            # -------- mapa izquierda --------
+            mapa1 = None
+            for chunk in graficaTransportesDia(ciudad_1, dia, mes_1,
+                                               sensibilidad_1, zoom,
+                                               dpi_scale=dpi_scale):
+                if not isinstance(chunk, int):
+                    mapa1 = chunk
+            h1 = tmp / f"L_{dia}.html"
+            h1.write_text(mapa1.get_root().render(), encoding="utf-8")
+            driver.get(h1.as_uri()); time.sleep(3)
+            p1 = tmp / f"L_{dia}.png"
+            driver.save_screenshot(str(p1))
+            img_left[str(dia)] = base64.b64encode(p1.read_bytes()).decode()
 
             step += 1
             yield 20 + int(step / total_steps * 75)
 
-            # ---- Mapa derecha ----
-            gen2 = graficaTransportesDia(
-                ciudad_2, dia, mes_2, sensibilidad_2, zoom,
-                open_browser=False
-            )
-            path2 = None
-            for path2 in gen2:
-                pass
-            driver.get(path2.as_uri())
-            time.sleep(2)
-            png2 = tmpdir / f"{ciudad_2}_{mes_2}_{dia}.png"
-            driver.save_screenshot(str(png2))
-            img_right[str(dia)] = base64.b64encode(png2.read_bytes()).decode("utf-8")
+            # -------- mapa derecha --------
+            mapa2 = None
+            for chunk in graficaTransportesDia(ciudad_2, dia, mes_2,
+                                               sensibilidad_2, zoom,
+                                               dpi_scale=dpi_scale):
+                if not isinstance(chunk, int):
+                    mapa2 = chunk
+            h2 = tmp / f"R_{dia}.html"
+            h2.write_text(mapa2.get_root().render(), encoding="utf-8")
+            driver.get(h2.as_uri()); time.sleep(3)
+            p2 = tmp / f"R_{dia}.png"
+            driver.save_screenshot(str(p2))
+            img_right[str(dia)] = base64.b64encode(p2.read_bytes()).decode()
 
             step += 1
             yield 20 + int(step / total_steps * 75)
 
     driver.quit()
-    yield 95  # capturas completas
+    yield 95
 
-    # ── Construir HTML comparativo ─────────────────────────────────────
-    imgs1_json = json.dumps(img_left)
-    imgs2_json = json.dumps(img_right)
+    # ── construir HTML comparativo ──────────────────────────────────
+    json_L = json.dumps(img_left)
+    json_R = json.dumps(img_right)
 
-    html_content = f"""<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"/><title>Comparación {ciudad_1} vs {ciudad_2}</title>
+    html = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"/>
+<title>Comparación {ciudad_1} vs {ciudad_2}</title>
 <style>
-  body {{ margin:0; padding:0; font-family:sans-serif; }}
-  #slider-container {{
-    position:fixed; top:20px; left:50%; transform:translateX(-50%);
-    background:white; padding:10px; border-radius:8px; z-index:9999;
-    box-shadow:0 0 10px rgba(0,0,0,0.2); text-align:center;
-  }}
-  .container {{ display:flex; width:100%; height:100vh; }}
-  .map-col {{ flex:1; display:flex; justify-content:center; align-items:center; }}
-  img.map-img {{ max-width:100%; height:auto; }}
-</style>
-</head>
-<body>
-  <div id="slider-container">
-    Día:
-    <input type="range" id="diaSlider" min="{slider_min}" max="{slider_max}" value="{slider_min}"
-           oninput="updateImages(this.value)">
-    <span id="diaLabel">{slider_min}</span>
-  </div>
-  <div class="container">
-    <div class="map-col">
-      <img id="img_left" class="map-img"
-           src="data:image/png;base64,{img_left[str(slider_min)]}"
-           alt="Mapa {ciudad_1}">
-    </div>
-    <div class="map-col">
-      <img id="img_right" class="map-img"
-           src="data:image/png;base64,{img_right[str(slider_min)]}"
-           alt="Mapa {ciudad_2}">
-    </div>
-  </div>
+ body{{margin:0;font-family:sans-serif}}
+ #ctl{{position:fixed;top:20px;left:50%;transform:translateX(-50%);
+      background:#fff;padding:10px;border-radius:8px;box-shadow:0 0 10px #0003;
+      z-index:9999}}
+ .row{{display:flex;width:100%;height:100vh}}
+ .cell{{flex:1;display:flex;justify-content:center;align-items:center}}
+ img{{max-width:100%;height:auto}}
+</style></head><body>
+<div id="ctl">
+  Día: <input type="range" id="sl" min="{s_min}" max="{s_max}" value="{s_min}"
+              oninput="chg(this.value)"> <span id="lbl">{s_min}</span>
+</div>
+<div class="row">
+  <div class="cell"><img id="L" src="data:image/png;base64,{img_left[str(s_min)]}"></div>
+  <div class="cell"><img id="R" src="data:image/png;base64,{img_right[str(s_min)]}"></div>
+</div>
 <script>
-  var imgs1 = {imgs1_json};
-  var imgs2 = {imgs2_json};
-  function updateImages(dia) {{
-      document.getElementById('diaLabel').textContent = dia;
-      var d = String(dia);
-      if (imgs1[d]) document.getElementById('img_left').src  = "data:image/png;base64," + imgs1[d];
-      if (imgs2[d]) document.getElementById('img_right').src = "data:image/png;base64," + imgs2[d];
-  }}
-  updateImages({slider_min});
-</script>
-</body>
-</html>"""
+const L={json_L}; const R={json_R};
+function chg(v){{
+  document.getElementById('lbl').textContent=v;
+  document.getElementById('L').src='data:image/png;base64,'+L[v];
+  document.getElementById('R').src='data:image/png;base64,'+R[v];
+}}
+</script></body></html>"""
 
-    output_html.write_text(html_content, encoding="utf-8")
-
-    # 100%: terminar
+    out.write_text(html, encoding="utf-8")
     yield 100
-
-    # abrir en navegador y devolver ruta
-    webbrowser.open_new_tab(output_html.as_uri())
-    yield output_html
+    yield out
 
 
 # In[115]:
