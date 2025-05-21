@@ -588,9 +588,6 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     driver.quit(); yield 95
 
     # ---------- HTML responsive ----------
-    html = f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8"/>
-<title>{ciudad_1} vs {ciudad_2}</title>
 html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"/>
 <title>{ciudad_1} vs {ciudad_2}</title>
