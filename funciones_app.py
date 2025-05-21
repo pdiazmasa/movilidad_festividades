@@ -508,11 +508,6 @@ from selenium.webdriver.chrome.options import Options
 import base64, json, time
 from tempfile import TemporaryDirectory
 
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-import base64, json, time
-from tempfile import TemporaryDirectory
-
 def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
                    ciudad_2, mes_2, sensibilidad_2,
                    zoom: int = 6):
@@ -541,7 +536,7 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     # ---------- captura 960×1080, 2× ----------
     CSS_W, CSS_H   = 960, 1080
     DEV_SCALE      = 2
-    dpi_scale      = 0.35         # ajusta tamaño de overlays
+    dpi_scale      = 0.25         # ajusta tamaño de overlays
 
     opts = Options()
     opts.add_argument("--headless=new")
@@ -597,14 +592,15 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
 <html lang="es"><head><meta charset="utf-8"/>
 <title>{ciudad_1} vs {ciudad_2}</title>
 <style>
- html,body{{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}}
- #ctl{{position:fixed;top:10px;left:50%;transform:translateX(-50%);
-       background:#fff;padding:6px 10px;border-radius:8px;box-shadow:0 0 6px #0004;
-       font-family:sans-serif;font-size:14px;z-index:9}}
- .row{{display:flex;width:100%;height:100%}}
- .cell{{flex:1 1 50%;overflow:hidden}}
- .cell img{{width:100%;height:100%;object-fit:cover}}
-</style></head><body>
+ html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}
+ #ctl{
+   position:fixed;top:10px;left:50%;transform:translateX(-50%);
+   background:#fff;padding:6px 10px;border-radius:8px;box-shadow:0 0 6px #0004;
+   font-family:sans-serif;font-size:14px;z-index:9}
+ .row{display:flex;width:100vw;height:100vh}
+ .cell{flex:0 0 50vw;height:100vh;overflow:hidden;position:relative}
+ .cell img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+</style>
 <div id="ctl">
  Día:
  <input type="range" id="sl" min="{s_min}" max="{s_max}" value="{s_min}"
