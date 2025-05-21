@@ -861,36 +861,23 @@ def exportar_mapa_gif(
 
     png_files = []
     # ── dentro del with los PNG existen ─────────────────────
-    with TemporaryDirectory() as tmpdir:
+        with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
         for idx, dia in enumerate(dias, start=1):
-            # 1) Generar el mapa
-            mapa = None
-            for chunk in graficaTransportesDia(ciudad, dia, mes, sensibilidad_color, zoom):
-                if not isinstance(chunk, int):
-                    mapa = chunk
-
-            # 2) Guardar HTML y capturar PNG
-            tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
-            tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
-            driver.get(tmp_html.as_uri())
-            time.sleep(2)  # espera a que cargue tiles
-            png_tmp = tmpdir / f"{ciudad}_{mes}_{dia}.png"
-            driver.save_screenshot(str(png_tmp))
-            png_files.append(png_tmp)
-
-            # 3) Reportar progreso 10→90%
+            # ... generación y captura de PNG ...
             yield 10 + int(idx / total * 80)
 
-        # ── CREAR EL GIF ANTES DE SALIR DEL with ─────────────────
+        # ── CREAR EL GIF ANTES DE BORRAR TEMPORALES ─────────────────
         fps = 1 / duracion_segundos
         with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
             for png in png_files:
                 writer.append_data(imageio.imread(png))
-        yield  ninety_five := 90  # GIF ya creado
+        yield 90  # GIF ya creado
 
-    # fuera del with: tmpdir se ha borrado, pero el GIF persiste
     driver.quit()
+
+    # (resto idéntico)
+
 
     # ── (Opcional) envolver en HTML ─────────────────────────
     if html_wrapper:
