@@ -816,10 +816,9 @@ def mapa_transportes_relativo(ciudad, dia, mes, sensibilidad=3, open_browser=Tru
 
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-import base64, json, time
+import base64, json, time, imageio, webbrowser, pandas as pd
 from tempfile import TemporaryDirectory
-import imageio
-import webbrowser
+from pathlib import Path
 
 def exportar_mapa_gif(
     ciudad,
@@ -860,24 +859,38 @@ def exportar_mapa_gif(
     yield 10  # Selenium listo
 
     png_files = []
+
     # ── dentro del with los PNG existen ─────────────────────
-        with TemporaryDirectory() as tmpdir:
+    with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
         for idx, dia in enumerate(dias, start=1):
-            # ... generación y captura de PNG ...
+            # 1) Generar el mapa
+            mapa = None
+            for chunk in graficaTransportesDia(ciudad, dia, mes, sensibilidad_color, zoom):
+                if not isinstance(chunk, int):
+                    mapa = chunk
+
+            # 2) Guardar HTML y capturar PNG
+            tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
+            tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
+            driver.get(tmp_html.as_uri())
+            time.sleep(2)  # espera a que cargue tiles
+            png_tmp = tmpdir / f"{ciudad}_{mes}_{dia}.png"
+            driver.save_screenshot(str(png_tmp))
+            png_files.append(png_tmp)
+
+            # 3) Reportar progreso 10→90%
             yield 10 + int(idx / total * 80)
 
-        # ── CREAR EL GIF ANTES DE BORRAR TEMPORALES ─────────────────
+        # ── CREAR EL GIF ANTES DE BORRAR TEMPORALES ────────────
         fps = 1 / duracion_segundos
         with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
             for png in png_files:
                 writer.append_data(imageio.imread(png))
         yield 90  # GIF ya creado
 
+    # fuera del with: tmpdir se ha borrado, pero el GIF persiste
     driver.quit()
-
-    # (resto idéntico)
-
 
     # ── (Opcional) envolver en HTML ─────────────────────────
     if html_wrapper:
@@ -885,8 +898,11 @@ def exportar_mapa_gif(
         html_code = f"""<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"/><title>GIF – {ciudad.capitalize()} {mes}</title>
-<style>body{{margin:0;display:flex;justify-content:center;align-items:center;
-             height:100vh;background:#000}}img{{max-width:100%;height:auto}}</style>
+<style>
+  body {{ margin:0; display:flex; justify-content:center; align-items:center;
+         height:100vh; background:#000; }}
+  img  {{ max-width:100%; height:auto; }}
+</style>
 </head><body>
   <img src="{gif_path.name}" alt="Mapa GIF">
 </body></html>"""
@@ -895,10 +911,12 @@ def exportar_mapa_gif(
     else:
         target = gif_path
 
-    # 95→100%: abrir y devolver
+    # 90→100%: abrir y devolver
     if open_browser:
         webbrowser.open_new_tab(target.as_uri())
+    yield 100
     yield target
+
 
 
 
