@@ -182,22 +182,18 @@ def detectar_campo_provincia(gdf, df_transport):
 # In[79]:
 
 
-def graficaTransportesDia(ciudad, dia, mes,
-                          sensibilidad_color: int = 3,
-                          zoom: int = 6,
-                          dpi_scale: float = 1.0):
+def graficaTransportesDia(
+        ciudad, dia, mes,
+        sensibilidad_color: int = 3,
+        zoom: int = 6,
+        dpi_scale: float = 1.0,        # ← nuevo
+):
     """
-    Genera un folium.Map.  Funciona como generador que va rindiendo progreso
-    (0–100) y, al final, devuelve el objeto mapa.
-
-    Parámetros nuevos
-    -----------------
-    dpi_scale : float
-        Factor multiplicador para el tamaño de las fuentes de los overlays
-        (título y leyenda).  Útil cuando se capturan PNG de alta resolución
-        con Selenium; en render interactivo normal usa el valor por defecto 1.0.
+    Genera un folium.Map.
+    Progreso 0–100; al final devuelve el mapa.
+    dpi_scale aumenta proporcionalmente el tamaño de fuentes
+    cuando se capturan PNG de alta resolución.
     """
-
     mes = int(mes)
     transporte_file = DATOS_DIR / f"{ciudad.lower()}-{mes:02}.xlsx"
     georef_file     = DATOS_DIR / "georef-spain-provincia.geojson"
@@ -216,34 +212,32 @@ def graficaTransportesDia(ciudad, dia, mes,
     df_dia = df_transporte[df_transporte["dia"] == dia]
     if df_dia.empty:
         raise ValueError(f"No hay datos para el día {dia}")
+
     df_agg = (
-        df_dia.groupby("provincia origen", as_index=False)["viajes"]
-              .sum()
+        df_dia.groupby("provincia origen", as_index=False)["viajes"].sum()
               .assign(prov_std=lambda d: d["provincia origen"]
                                          .apply(standardize_province_name))
     )
-
     best_field = detectar_campo_provincia(gdf_provincias, df_agg)
     if best_field is None:
         raise RuntimeError("No se detectó campo provincia válido")
 
-    gdf_provincias["prov_std"] = gdf_provincias[best_field]\
-                                    .apply(standardize_province_name)
+    gdf_provincias["prov_std"] = gdf_provincias[best_field].apply(
+        standardize_province_name)
     gdf_merged = gdf_provincias.merge(
-        df_agg[["prov_std", "viajes"]], on="prov_std", how="left"
-    )
+        df_agg[["prov_std", "viajes"]], on="prov_std", how="left")
     gdf_merged["viajes"] = gdf_merged["viajes"].fillna(0)
     yield 50
 
-    max_viajes   = gdf_merged["viajes"].max()
-    centro       = gdf_merged.to_crs("EPSG:3857").geometry.centroid\
-                              .unary_union.centroid
-    latlon_ctr   = gpd.GeoSeries([centro], crs="EPSG:3857")\
-                        .to_crs("EPSG:4326").iloc[0]
-    mapa = folium.Map(location=[latlon_ctr.y, latlon_ctr.x], zoom_start=zoom)
+    max_viajes = gdf_merged["viajes"].max()
+    centro = gdf_merged.to_crs("EPSG:3857").geometry.centroid\
+                        .unary_union.centroid
+    ctr_ll = gpd.GeoSeries([centro], crs="EPSG:3857")\
+                 .to_crs("EPSG:4326").iloc[0]
+    mapa = folium.Map(location=[ctr_ll.y, ctr_ll.x], zoom_start=zoom)
     yield 60
 
-    # ---------- overlays con ajuste dpi_scale ----------------------------
+    # ── overlays con dpi_scale ──────────────────────────────────────────
     font_sup    = round(14 * dpi_scale, 1)
     font_legend = round(13 * dpi_scale, 1)
 
@@ -253,18 +247,17 @@ def graficaTransportesDia(ciudad, dia, mes,
                   z-index:9999; background:white; padding:8px 12px;
                   border:2px solid grey; border-radius:4px;
                   font-size:{font_sup}px; white-space:nowrap;">
-        Ciudad: {{this.ciudad}} | Mes: {{this.mes}} | Sensibilidad: {{this.sensibilidad}}
+        Ciudad: {{{{this.ciudad}}}} | Mes: {{{{this.mes}}}} | Sensibilidad: {{{{this.sensibilidad}}}}
       </div>
     {{% endmacro %}}
     """
     m_sup = MacroElement()
-    m_sup._template   = Template(tpl_sup)
-    m_sup.ciudad      = ciudad
-    m_sup.mes         = mes
-    m_sup.sensibilidad = sensibilidad_color
+    m_sup._template = Template(tpl_sup)
+    m_sup.ciudad, m_sup.mes, m_sup.sensibilidad = ciudad, mes, sensibilidad_color
     mapa.get_root().add_child(m_sup)
     yield 70
 
+    # ── capa GeoJSON ────────────────────────────────────────────────────
     estudio_std = standardize_province_name(ciudad)
 
     def style_function(feat):
@@ -281,26 +274,29 @@ def graficaTransportesDia(ciudad, dia, mes,
         style_function=style_function,
         tooltip=folium.features.GeoJsonTooltip(
             fields=[best_field, "viajes"],
-            aliases=["Provincia", "Viajes"]
-        )
+            aliases=["Provincia", "Viajes"])
     ).add_to(mapa)
 
+    # ── leyenda ─────────────────────────────────────────────────────────
     legend_html = f"""
-    <div style="position:fixed; bottom:10px; left:10px; width:260px; height:110px;
-                background:white; border:2px solid grey; border-radius:4px;
+    <div style="position:fixed; bottom:10px; left:10px;
+                width:260px; height:110px; background:white;
+                border:2px solid grey; border-radius:4px;
                 padding:10px; font-size:{font_legend}px; z-index:9999;">
       <b>🗺️ Leyenda</b><br><br>
-      <i style="background:#336699;width:12px;height:12px;display:inline-block;margin-right:5px;"></i>
+      <i style="background:#336699;width:12px;height:12px;
+                display:inline-block;margin-right:5px;"></i>
         <b>Azul</b>: Provincias de origen<br>
       &nbsp;&nbsp;Más oscuro → más desplazamientos<br>
-      <i style="background:#66f26a;width:12px;height:12px;display:inline-block;margin-right:5px;"></i>
+      <i style="background:#66f26a;width:12px;height:12px;
+                display:inline-block;margin-right:5px;"></i>
         <b>Verde</b>: Provincia destino<br>
     </div>
     """
     mapa.get_root().html.add_child(folium.Element(legend_html))
     yield 90
 
-    yield mapa   # 100 %
+    yield mapa        # 100 %
 
 
 
