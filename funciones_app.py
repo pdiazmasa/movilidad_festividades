@@ -446,7 +446,7 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
 
             # capturar PNG
             driver.get(tmp_html.as_uri())
-            time.sleep(2.5)
+            time.sleep(3)
             png_path = tmpdir / f"{ciudad}_{mes}_{dia}.png"
             driver.save_screenshot(str(png_path))
 
