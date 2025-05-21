@@ -125,7 +125,7 @@ def show_progress(gen):
     return res
 
 
-def folium_static(mapa, width=760, height=560):
+def folium_static(mapa, width=900, height=700):
     """Incrusta un folium.Map preservando sus capas GeoJSON."""
     html = mapa.get_root().render()
     components.html(html, width=width, height=height, scrolling=False)
