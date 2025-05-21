@@ -831,7 +831,7 @@ def exportar_mapa_gif(
     Genera un GIF animado tomando screenshots de los mapas Folium diarios:
       - Captura con Selenium en 1920×1080 CSS px a escala 2× para alta resolución.
       - Usa graficaTransportesDia con leyenda a la izquierda.
-      - Junta todas las PNG en un GIF.
+      - Junta todas las PNG en un GIF (antes de borrar el tmpdir).
       - Opcionalmente envuelve el GIF en un HTML.
     Progreso: 0–100; devuelve Path al .gif o al HTML que lo envuelve.
     """
@@ -847,10 +847,9 @@ def exportar_mapa_gif(
     total = len(dias)
     yield 0
 
-    # preparar rutas
     gif_path = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.gif"
 
-    # Selenium headless hi-DPI 1920×1080 CSS @2×
+    # Selenium headless hi-DPI
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
@@ -858,50 +857,52 @@ def exportar_mapa_gif(
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--force-device-scale-factor=2")
     driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=opts)
-
-    png_files = []
     yield 5
 
+    png_files = []
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
+
+        # 1) Capturar todos los PNG
         for idx, dia in enumerate(dias, start=1):
-            # 1) Generar el folium.Map con leyenda a la izquierda
+            # generar mapa con leyenda a la izquierda
             mapa = None
-            for chunk in graficaTransportesDia(ciudad, dia, mes,
-                                               sensibilidad_color, zoom,
-                                               dpi_scale=1.0,
-                                               legend_side="left"):
+            for chunk in graficaTransportesDia(
+                ciudad, dia, mes, sensibilidad_color, zoom,
+                dpi_scale=1.0, legend_side="left"
+            ):
                 if not isinstance(chunk, int):
                     mapa = chunk
 
-            # 2) Guardar HTML temporal y capturar PNG
+            # guardar HTML temporal
             tmp_html = tmpdir / f"{ciudad}_{mes:02d}_{dia:02d}.html"
             tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
+
+            # screenshot
             driver.get(tmp_html.as_uri())
-            time.sleep(2.5)  # dejar cargar tiles + CSS
+            time.sleep(2.5)
             tmp_png = tmpdir / f"{ciudad}_{mes:02d}_{dia:02d}.png"
             driver.save_screenshot(str(tmp_png))
-            png_files.append(str(tmp_png))
+            png_files.append(tmp_png)
 
-            # progreso 5→85
             yield 5 + int(idx / total * 80)
 
-    driver.quit()
-    yield 90
+        # 2) Ensamblar GIF *dentro* del with para que los PNG existan
+        fps = 1 / duracion_segundos
+        with imageio.get_writer(str(gif_path), mode="I", fps=fps, loop=0) as writer:
+            for png in png_files:
+                writer.append_data(imageio.imread(str(png)))
+        yield 90
 
-    # 3) Montar GIF
-    fps = 1 / duracion_segundos
-    with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
-        for png in png_files:
-            writer.append_data(imageio.imread(png))
+    # 3) Ya fuera del tmpdir, podemos cerrar el driver
+    driver.quit()
     yield 95
 
-    # 4) Opcional: envolver en HTML
+    # 4) HTML wrapper opcional
     if html_wrapper:
         html_file = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.html"
         html_code = f"""<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"/>
+<html lang="es"><head><meta charset="utf-8"/>
 <title>GIF – {ciudad.capitalize()} {mes}</title>
 <style>
   body {{ margin:0; display:flex; justify-content:center; align-items:center;
