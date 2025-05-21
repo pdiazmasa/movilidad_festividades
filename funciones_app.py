@@ -540,7 +540,7 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     # -------- parámetros de captura -----------------------------------
     W, H          = 960, 1080          # px CSS por mapa
     SCALE         = 2                  # Hi-DPI
-    dpi_scale     = SCALE * 0.8        # reducimos un poco textos
+    dpi_scale     = SCALE * 0.4        # reducimos un poco textos
 
     opts = Options()
     opts.add_argument("--headless=new")
@@ -604,14 +604,16 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
 <html lang="es"><head><meta charset="utf-8"/>
 <title>{ciudad_1} vs {ciudad_2}</title>
 <style>
-html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden}}
-#ctl{{position:fixed;top:20px;left:50%;transform:translateX(-50%);
-      background:#fff;padding:10px;border-radius:8px;box-shadow:0 0 8px #0004;
-      z-index:9;font-family:sans-serif}}
-.row{{display:flex;width:1920px;height:1080px}}
-.cell{{width:960px;height:1080px;overflow:hidden}}
-.cell img{{width:100%;height:100%;object-fit:cover}}
-</style></head><body>
+ html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}
+ #ctl{
+   position:fixed;top:10px;left:50%;transform:translateX(-50%);
+   background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 0 6px #0003;
+   z-index:9;font-family:sans-serif;font-size:15px
+ }
+ .row{display:flex;width:100%;height:100%}
+ .cell{flex:1 1 50%;overflow:hidden}
+ .cell img{width:100%;height:100%;object-fit:cover}
+</style>
 <div id="ctl">Día: <input type="range" id="s" min="{s_min}" max="{s_max}"
            value="{s_min}" oninput="chg(this.value)"> <span id="lbl">{s_min}</span></div>
 <div class="row">
