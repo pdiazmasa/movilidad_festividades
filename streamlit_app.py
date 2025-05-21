@@ -21,8 +21,7 @@ from funciones_app import (
     exportar_mapa_con_imagenes_mes,
     comparar_mapas,
     mapa_transportes_relativo,
-    exportar_mapa_gif,
-)
+    exportar_mapa_gif)
 
 # -------- Soporte PyInstaller (ignorado en Cloud) --------
 if getattr(sys, "frozen", False):
