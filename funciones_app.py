@@ -505,18 +505,20 @@ function chg(v){{
 
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-import base64, json, time
 from tempfile import TemporaryDirectory
+from pathlib import Path
+import base64, json, time, pandas as pd, os, webbrowser
 
 def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
                    ciudad_2, mes_2, sensibilidad_2,
                    zoom: int = 6):
     """
-    Captura dos series de mapas diarios (960×1080 CSS, 2×) y genera un
-    HTML con slider (día) y ambos mapas lado a lado (50 % del ancho cada uno).
-    Devuelve Path al HTML; progreso 0-100.
+    Captura dos series de mapas diarios (960×1080 CSS px, escala 2×) y
+    genera un HTML responsive con slider que muestra ambos mapas
+    recortados (50 % del ancho cada uno).  Devuelve Path al HTML.
     """
 
+    # 0 % ── comprobaciones básicas
     yield 0
     f1 = DATOS_DIR / f"{ciudad_1.lower()}-{int(mes_1):02}.xlsx"
     f2 = DATOS_DIR / f"{ciudad_2.lower()}-{int(mes_2):02}.xlsx"
@@ -525,6 +527,7 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
         raise FileNotFoundError("Alguno de los Excel no existe")
     yield 5
 
+    # 15 % ── determinar días comunes
     d1 = sorted(pd.read_excel(f1)["dia"].dropna().unique())
     d2 = sorted(pd.read_excel(f2)["dia"].dropna().unique())
     s_min, s_max = max(d1[0], d2[0]), min(d1[-1], d2[-1])
@@ -533,10 +536,10 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     dias = list(range(int(s_min), int(s_max) + 1))
     yield 15
 
-    # ---------- captura 960×1080, 2× ----------
-    CSS_W, CSS_H   = 960, 1080
-    DEV_SCALE      = 2
-    dpi_scale      = 0.25         # ajusta tamaño de overlays
+    # parámetros de captura
+    CSS_W, CSS_H = 960, 1080     # cada mitad
+    DEV_SCALE    = 2             # Hi-DPI
+    dpi_scale    = 0.25          # overlays pequeños
 
     opts = Options()
     opts.add_argument("--headless=new")
@@ -546,56 +549,59 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     opts.add_argument(f"--force-device-scale-factor={DEV_SCALE}")
     driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"),
                               options=opts)
-    yield 20
+    yield 20  # Selenium listo
 
     L, R = {}, {}
-    total = len(dias) * 2
-    step  = 0
+    total_steps = len(dias) * 2
+    step = 0
 
-    with TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
+    with TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
         for dia in dias:
-            # --- mapa izquierda (ciudad 1) ---
-            m1 = next(ch for ch in
-                      graficaTransportesDia(ciudad_1, dia, mes_1,
-                                            sensibilidad_1, zoom,
-                                            dpi_scale=dpi_scale)
-                      if not isinstance(ch, int))
-            h1 = tmp / f"L_{dia}.html"
-            h1.write_text(m1.get_root().render(), encoding="utf-8")
+            # ----- mapa izquierda -----
+            mapa1 = next(ch for ch in
+                         graficaTransportesDia(ciudad_1, dia, mes_1,
+                                               sensibilidad_1, zoom,
+                                               dpi_scale=dpi_scale)
+                         if not isinstance(ch, int))
+            h1 = tmpdir / f"L_{dia}.html"
+            h1.write_text(mapa1.get_root().render(), encoding="utf-8")
             driver.get(h1.as_uri()); time.sleep(2.2)
-            p1 = tmp / f"L_{dia}.png"
+            p1 = tmpdir / f"L_{dia}.png"
             driver.save_screenshot(str(p1))
             L[str(dia)] = base64.b64encode(p1.read_bytes()).decode()
 
-            step += 1; yield 20 + int(step / total * 75)
+            step += 1
+            yield 20 + int(step / total_steps * 75)
 
-            # --- mapa derecha (ciudad 2) ---
-            m2 = next(ch for ch in
-                      graficaTransportesDia(ciudad_2, dia, mes_2,
-                                            sensibilidad_2, zoom,
-                                            dpi_scale=dpi_scale)
-                      if not isinstance(ch, int))
-            h2 = tmp / f"R_{dia}.html"
-            h2.write_text(m2.get_root().render(), encoding="utf-8")
+            # ----- mapa derecha -----
+            mapa2 = next(ch for ch in
+                         graficaTransportesDia(ciudad_2, dia, mes_2,
+                                               sensibilidad_2, zoom,
+                                               dpi_scale=dpi_scale)
+                         if not isinstance(ch, int))
+            h2 = tmpdir / f"R_{dia}.html"
+            h2.write_text(mapa2.get_root().render(), encoding="utf-8")
             driver.get(h2.as_uri()); time.sleep(2.2)
-            p2 = tmp / f"R_{dia}.png"
+            p2 = tmpdir / f"R_{dia}.png"
             driver.save_screenshot(str(p2))
             R[str(dia)] = base64.b64encode(p2.read_bytes()).decode()
 
-            step += 1; yield 20 + int(step / total * 75)
+            step += 1
+            yield 20 + int(step / total_steps * 75)
 
-    driver.quit(); yield 95
+    driver.quit()
+    yield 95  # capturas completas
 
-    # ---------- HTML responsive ----------
-html = f"""<!DOCTYPE html>
+    # ---------- HTML final ----------
+    html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"/>
 <title>{ciudad_1} vs {ciudad_2}</title>
 <style>
  html,body{{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}}
  #ctl{{position:fixed;top:10px;left:50%;transform:translateX(-50%);
-      background:#fff;padding:6px 10px;border-radius:8px;box-shadow:0 0 6px #0004;
-      font-family:sans-serif;font-size:14px;z-index:9}}
+       background:#fff;padding:6px 10px;border-radius:8px;
+       box-shadow:0 0 6px #0004;font-family:sans-serif;font-size:14px;z-index:9}}
  .row{{display:flex;width:100vw;height:100vh}}
  .cell{{flex:0 0 50vw;height:100vh;overflow:hidden;position:relative}}
  .cell img{{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}}
@@ -611,17 +617,21 @@ html = f"""<!DOCTYPE html>
  <div class="cell"><img id="R" src="data:image/png;base64,{R[str(s_min)]}"></div>
 </div>
 <script>
+const L={{}}; const R={{}};  // rellenamos abajo
+Object.assign(L, {json.dumps(L)});
+Object.assign(R, {json.dumps(R)});
 const Limg=document.getElementById('L'),
       Rimg=document.getElementById('R'),
-      lbl=document.getElementById('lbl'),
-      L={json.dumps(L)}, R={json.dumps(R)};
-function chg(v){{lbl.textContent=v;Limg.src='data:image/png;base64,'+L[v];
-                 Rimg.src='data:image/png;base64,'+R[v];}}
+      lbl=document.getElementById('lbl');
+function chg(v){{lbl.textContent=v;
+  Limg.src='data:image/png;base64,'+L[v];
+  Rimg.src='data:image/png;base64,'+R[v];}}
 </script></body></html>"""
 
     out.write_text(html, encoding="utf-8")
     yield 100
     yield out
+
 
 
 # In[115]:
