@@ -4,7 +4,7 @@ Aplicación Streamlit para visualizar la movilidad interprovincial y ofrecer un
 **botón de descarga en todos los modos**:
 
 * Mapa de un día → descarga del HTML incrustado.
-* Modo relativo → descarga del HTML incrustado.
+* Modo relativo → descarga del HTML incrustrado.
 * Resto de modos → descarga del archivo generado (HTML o GIF).
 """
 
@@ -69,14 +69,6 @@ descs = {
     menu[4]: "Colorea según viajes por mil habitantes, resaltando la provincia destino.",
     menu[5]: "Crea un GIF animado con la evolución diaria del mes.",
 }
-funcs = {
-    menu[0]: ("graficaTransportesDia", "Genera un folium.Map y lo devuelve para Streamlit."),
-    menu[1]: ("exportar_mapa_interactivo_mes", "Genera un HTML interactivo con slider mensual."),
-    menu[2]: ("exportar_mapa_con_imagenes_mes", "Captura PNG Hi-DPI diarios y monta un HTML."),
-    menu[3]: ("comparar_mapas", "Compara dos series de mapas en un único HTML."),
-    menu[4]: ("mapa_transportes_relativo", "Mapa coloreado por viajes por mil habitantes."),
-    menu[5]: ("exportar_mapa_gif", "Genera un GIF animado de la serie de mapas."),
-}
 
 # -------- Utilidades --------
 def show_progress(gen):
@@ -112,11 +104,9 @@ def cache_mapa(c, d, m_, s, z):
 # -------- Sidebar y selección --------
 choice = st.sidebar.radio("Elige función", menu)
 
-# -------- Cabecera, descripción y función --------
+# -------- Cabecera y descripción --------
 st.header(titles[choice])
 st.markdown(descs[choice])
-fn_name, fn_desc = funcs[choice]
-st.markdown(f"**Función utilizada:** `{fn_name}()`  \n*{fn_desc}*")
 
 # -------- 1) Mapa interactivo de un día --------
 if choice == menu[0]:
