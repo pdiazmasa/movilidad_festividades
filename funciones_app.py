@@ -508,123 +508,120 @@ from selenium.webdriver.chrome.options import Options
 import base64, json, time
 from tempfile import TemporaryDirectory
 
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+import base64, json, time
+from tempfile import TemporaryDirectory
+
 def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
                    ciudad_2, mes_2, sensibilidad_2,
                    zoom: int = 6):
     """
-    Compara dos provincias día a día.  Captura cada mapa a 960×1080 px CSS,
-    escala 2×, y genera un HTML 1920×1080 con los dos mapas lado a lado.
-    Progreso devuelto: 0–100; al final, Path al HTML.
+    Captura dos series de mapas diarios (960×1080 CSS, 2×) y genera un
+    HTML con slider (día) y ambos mapas lado a lado (50 % del ancho cada uno).
+    Devuelve Path al HTML; progreso 0-100.
     """
-    yield 0
 
+    yield 0
     f1 = DATOS_DIR / f"{ciudad_1.lower()}-{int(mes_1):02}.xlsx"
     f2 = DATOS_DIR / f"{ciudad_2.lower()}-{int(mes_2):02}.xlsx"
     out = RESULTADOS_DIR / f"comparar_{ciudad_1}_{mes_1}_{ciudad_2}_{mes_2}.html"
-
-    if not f1.exists(): raise FileNotFoundError(f1)
-    if not f2.exists(): raise FileNotFoundError(f2)
+    if not f1.exists() or not f2.exists():
+        raise FileNotFoundError("Alguno de los Excel no existe")
     yield 5
 
     d1 = sorted(pd.read_excel(f1)["dia"].dropna().unique())
     d2 = sorted(pd.read_excel(f2)["dia"].dropna().unique())
-    if not d1 or not d2:
-        raise ValueError("No hay días en uno de los archivos")
-
     s_min, s_max = max(d1[0], d2[0]), min(d1[-1], d2[-1])
     if s_min > s_max:
-        raise ValueError("No hay rango de días común")
+        raise ValueError("No hay días comunes")
     dias = list(range(int(s_min), int(s_max) + 1))
     yield 15
 
-    # -------- parámetros de captura -----------------------------------
-    W, H          = 960, 1080          # px CSS por mapa
-    SCALE         = 2                  # Hi-DPI
-    dpi_scale     = SCALE * 0.4        # reducimos un poco textos
+    # ---------- captura 960×1080, 2× ----------
+    CSS_W, CSS_H   = 960, 1080
+    DEV_SCALE      = 2
+    dpi_scale      = 0.35         # ajusta tamaño de overlays
 
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument(f"--window-size={W},{H}")
-    opts.add_argument(f"--force-device-scale-factor={SCALE}")
+    opts.add_argument(f"--window-size={CSS_W},{CSS_H}")
+    opts.add_argument(f"--force-device-scale-factor={DEV_SCALE}")
     driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"),
                               options=opts)
     yield 20
 
-    img_L, img_R = {}, {}
-    total_steps  = len(dias) * 2
-    step = 0
+    L, R = {}, {}
+    total = len(dias) * 2
+    step  = 0
 
-    with TemporaryDirectory() as td:
-        td = Path(td)
+    with TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
         for dia in dias:
-            # -------- mapa izquierda ----------------------------------
-            map1 = None
-            for chunk in graficaTransportesDia(ciudad_1, dia, mes_1,
-                                               sensibilidad_1, zoom,
-                                               dpi_scale=dpi_scale):
-                if not isinstance(chunk, int):
-                    map1 = chunk
-            h1 = td / f"L_{dia}.html"
-            h1.write_text(map1.get_root().render(), encoding="utf-8")
-            driver.get(h1.as_uri()); time.sleep(2.5)
-            p1 = td / f"L_{dia}.png"
+            # --- mapa izquierda (ciudad 1) ---
+            m1 = next(ch for ch in
+                      graficaTransportesDia(ciudad_1, dia, mes_1,
+                                            sensibilidad_1, zoom,
+                                            dpi_scale=dpi_scale)
+                      if not isinstance(ch, int))
+            h1 = tmp / f"L_{dia}.html"
+            h1.write_text(m1.get_root().render(), encoding="utf-8")
+            driver.get(h1.as_uri()); time.sleep(2.2)
+            p1 = tmp / f"L_{dia}.png"
             driver.save_screenshot(str(p1))
-            img_L[str(dia)] = base64.b64encode(p1.read_bytes()).decode()
+            L[str(dia)] = base64.b64encode(p1.read_bytes()).decode()
 
-            step += 1
-            yield 20 + int(step / total_steps * 75)
+            step += 1; yield 20 + int(step / total * 75)
 
-            # -------- mapa derecha ------------------------------------
-            map2 = None
-            for chunk in graficaTransportesDia(ciudad_2, dia, mes_2,
-                                               sensibilidad_2, zoom,
-                                               dpi_scale=dpi_scale):
-                if not isinstance(chunk, int):
-                    map2 = chunk
-            h2 = td / f"R_{dia}.html"
-            h2.write_text(map2.get_root().render(), encoding="utf-8")
-            driver.get(h2.as_uri()); time.sleep(2.5)
-            p2 = td / f"R_{dia}.png"
+            # --- mapa derecha (ciudad 2) ---
+            m2 = next(ch for ch in
+                      graficaTransportesDia(ciudad_2, dia, mes_2,
+                                            sensibilidad_2, zoom,
+                                            dpi_scale=dpi_scale)
+                      if not isinstance(ch, int))
+            h2 = tmp / f"R_{dia}.html"
+            h2.write_text(m2.get_root().render(), encoding="utf-8")
+            driver.get(h2.as_uri()); time.sleep(2.2)
+            p2 = tmp / f"R_{dia}.png"
             driver.save_screenshot(str(p2))
-            img_R[str(dia)] = base64.b64encode(p2.read_bytes()).decode()
+            R[str(dia)] = base64.b64encode(p2.read_bytes()).decode()
 
-            step += 1
-            yield 20 + int(step / total_steps * 75)
+            step += 1; yield 20 + int(step / total * 75)
 
-    driver.quit()
-    yield 95
+    driver.quit(); yield 95
 
-    # -------- HTML 1920×1080 -----------------------------------------
-    json_L = json.dumps(img_L)
-    json_R = json.dumps(img_R)
-
+    # ---------- HTML responsive ----------
     html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"/>
 <title>{ciudad_1} vs {ciudad_2}</title>
 <style>
- html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}
- #ctl{
-   position:fixed;top:10px;left:50%;transform:translateX(-50%);
-   background:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 0 6px #0003;
-   z-index:9;font-family:sans-serif;font-size:15px
- }
- .row{display:flex;width:100%;height:100%}
- .cell{flex:1 1 50%;overflow:hidden}
- .cell img{width:100%;height:100%;object-fit:cover}
-</style>
-<div id="ctl">Día: <input type="range" id="s" min="{s_min}" max="{s_max}"
-           value="{s_min}" oninput="chg(this.value)"> <span id="lbl">{s_min}</span></div>
+ html,body{{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}}
+ #ctl{{position:fixed;top:10px;left:50%;transform:translateX(-50%);
+       background:#fff;padding:6px 10px;border-radius:8px;box-shadow:0 0 6px #0004;
+       font-family:sans-serif;font-size:14px;z-index:9}}
+ .row{{display:flex;width:100%;height:100%}}
+ .cell{{flex:1 1 50%;overflow:hidden}}
+ .cell img{{width:100%;height:100%;object-fit:cover}}
+</style></head><body>
+<div id="ctl">
+ Día:
+ <input type="range" id="sl" min="{s_min}" max="{s_max}" value="{s_min}"
+        oninput="chg(this.value)">
+ <span id="lbl">{s_min}</span>
+</div>
 <div class="row">
-  <div class="cell"><img id="L" src="data:image/png;base64,{img_L[str(s_min)]}"></div>
-  <div class="cell"><img id="R" src="data:image/png;base64,{img_R[str(s_min)]}"></div>
+ <div class="cell"><img id="L" src="data:image/png;base64,{L[str(s_min)]}"></div>
+ <div class="cell"><img id="R" src="data:image/png;base64,{R[str(s_min)]}"></div>
 </div>
 <script>
-const L={json_L}, R={json_R};
-function chg(v){{document.getElementById('lbl').textContent=v;
-  document.getElementById('L').src='data:image/png;base64,'+L[v];
-  document.getElementById('R').src='data:image/png;base64,'+R[v];}}
+const Limg=document.getElementById('L'),
+      Rimg=document.getElementById('R'),
+      lbl=document.getElementById('lbl'),
+      L={json.dumps(L)}, R={json.dumps(R)};
+function chg(v){{lbl.textContent=v;Limg.src='data:image/png;base64,'+L[v];
+                 Rimg.src='data:image/png;base64,'+R[v];}}
 </script></body></html>"""
 
     out.write_text(html, encoding="utf-8")
