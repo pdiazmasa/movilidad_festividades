@@ -1,0 +1,974 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[45]:
+
+
+# In[46]:
+
+
+# ── Standard library ──────────────────────────
+import os
+import sys
+import time
+import json
+import base64
+import webbrowser
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unicodedata
+
+# ── Third-party ───────────────────────────────
+import pandas as pd
+import geopandas as gpd
+import folium
+from folium.plugins import MarkerCluster          # quítalo si no lo usas
+from shapely.geometry import Point
+from branca.element import Template, MacroElement
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+import imageio.v2 as imageio
+from jinja2 import Template                       # ya importada arriba; borra si no la necesitas duplicada
+
+# ── Jupyter helpers (solo si trabajas en notebook) ──
+from IPython.display import display, IFrame, clear_output
+from ipywidgets import interact, widgets
+
+
+# In[47]:
+
+
+# ── Carpetas base y de datos/resultados ─────────────────────────
+if getattr(sys, "frozen", False):                  # cuando esté empaquetado en .exe
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:                                              # modo desarrollo o Jupyter
+    try:
+        BASE_DIR = Path(__file__).resolve().parent
+    except NameError:                              # dentro de Notebook
+        BASE_DIR = Path.cwd()
+
+DATOS_DIR     = BASE_DIR / "datos"                 # Excel, geojson, etc.
+RESULTADOS_DIR = BASE_DIR / "resultados"           # salidas generadas
+RESULTADOS_DIR.mkdir(exist_ok=True)
+
+
+# In[119]:
+
+
+#!jupyter nbconvert --to script funciones_app.ipynb --output funciones_app
+
+
+# In[51]:
+
+
+def normalize_string(s):
+    """
+    Normaliza una cadena eliminando acentos y transformándola a minúsculas.
+    """
+    if pd.isna(s):
+        return ""
+    return unicodedata.normalize('NFKD', str(s)).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
+
+
+# In[53]:
+
+
+def standardize_province_name(name):
+    """
+    Estandariza el nombre de una provincia usando un diccionario de equivalencias.
+    Se pueden agregar o ajustar mapeos según las discrepancias encontradas.
+    """
+    norm_name = normalize_string(name)
+    mapping = {
+        "castellon": "castellon",
+        "castellon/castello": "castellon",
+        "castello": "castellon",  # Ejemplo de variante
+        "alicante": "alicante",
+        "alacant": "alicante",
+        "alicante/alacant": "alicante",
+        "araba": "alava",
+        "araba/alava": "alava",
+        "Araba/Álava": "alava",
+        "Vitoria": "alava",
+        "Álava": "alava",
+        "\u00c1lava": "alava"
+        # Puedes agregar aquí otros mapeos que sean necesarios
+    }
+    return mapping.get(norm_name, norm_name)
+
+
+# In[55]:
+
+
+def get_fill_color(volume, max_volume, sensibilidad):
+    """
+    Devuelve un código hexadecimal de color para el tono de azul, interpolando entre
+    blanco (para volúmenes < 90) y azul oscuro (RGB 0,0,139) para el máximo de viajes.
+    
+    Antes de la interpolación se resta 90 a todos los volúmenes, de modo que:
+      - Si volume < 90, se devuelve blanco puro.
+      - Para volúmenes ≥ 90, se define el volumen efectivo = volume - 90, y el 
+        máximo efectivo = max_volume - 90 (o 1 si max_volume <= 90), lo que reduce la
+        diferencia entre 0 y 100.
+    
+    El parámetro 'sensibilidad' se utiliza para ajustar la curva de intensidad.
+    """
+    import pandas as pd
+    
+    # Comprobaciones iniciales.
+    if volume is None or pd.isna(volume) or max_volume == 0:
+        return "#ffffff"
+
+    # Si volume es 0, lo tratamos como 1 (como se indicó anteriormente).
+    if volume == 0:
+        volume = 1
+    
+    # Si el volumen es menor que 90, se devuelve blanco puro.
+    if volume < 90:
+        return "#ffffff"
+    
+    # Calcular el volumen efectivo restando 90
+    effective_volume = volume - 90
+    effective_max = max_volume - 90 if max_volume > 90 else 1  # Evitar división por cero
+
+    norm = effective_volume / effective_max
+    intensity = norm ** (1.0 / sensibilidad)
+    
+    r = 255 - int(255 * intensity)
+    g = 255 - int(255 * intensity)
+    b = 255 - int(140 * intensity)  # Se mantiene 140 para obtener (255-140)=115 como base de azul oscuro
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+# In[57]:
+
+
+def detectar_campo_provincia(gdf, df_transport):
+    """
+    Intenta detectar cuál es el campo del GeoJSON que contiene los nombres de provincias.
+    Primero se intenta comparar las columnas (excepto la de geometría) usando 
+    la función standardize_province_name y comprobando coincidencias con los nombres
+    estandarizados del df de transporte.
+    Si no se encuentra ninguna coincidencia razonable, se usa un método "fallback":
+    se consideran las columnas tipo objeto y se elige la de mayor cantidad de valores únicos.
+    """
+    # Obtenemos los nombres estandarizados del DataFrame de transporte
+    transport_provinces = set(df_transport['prov_std'])
+    
+    candidate_fields = [col for col in gdf.columns if col.lower() != 'geometry']
+    best_field = None
+    best_matches = 0
+    for field in candidate_fields:
+        try:
+            std_values = gdf[field].astype(str).apply(standardize_province_name)
+        except Exception:
+            continue
+        count_matches = std_values.isin(transport_provinces).sum()
+        if count_matches > best_matches:
+            best_matches = count_matches
+            best_field = field
+    if best_field is None or best_matches == 0:
+        # Fallback: elegir la columna de tipo objeto con mayor número de valores únicos
+        object_fields = [col for col in gdf.columns if gdf[col].dtype == object]
+        if object_fields:
+            best_field = max(object_fields, key=lambda col: gdf[col].nunique())
+            print("Fallback: se elige el campo", best_field, "con", gdf[best_field].nunique(), "valores únicos")
+        else:
+            print("No se detectó ningún campo de texto en el GeoJSON.")
+            return None
+    return best_field
+
+
+# In[79]:
+
+
+def graficaTransportesDia(ciudad, dia, mes, sensibilidad_color=3, zoom=6, open_browser=True):
+    """
+    Genera un mapa Folium, lo guarda como HTML en RESULTADOS_DIR,
+    abre el archivo en el navegador y devuelve la ruta al HTML.
+    Funciona como generator: emite porcentajes de progreso y al final la ruta.
+    """
+
+    mes = int(mes)
+    transporte_file = DATOS_DIR / f"{ciudad.lower()}-{mes:02}.xlsx"
+    html_path       = RESULTADOS_DIR / f"mapa_{ciudad}_{mes:02d}_{dia:02d}.html"
+    georef_file     = DATOS_DIR / "georef-spain-provincia.geojson"
+
+    # 0%: inicio
+    yield 0
+
+    # Comprobaciones de existencia
+    if not georef_file.exists():
+        raise FileNotFoundError(f"No se encuentra el georef: {georef_file}")
+    if not transporte_file.exists():
+        raise FileNotFoundError(f"No se encuentra el Excel: {transporte_file}")
+
+    # 10%: comprobaciones hechas
+    yield 10
+
+    # Carga de datos
+    gdf_provincias = gpd.read_file(georef_file)
+    df_transporte  = pd.read_excel(transporte_file)
+
+    # 30%: datos cargados
+    yield 30
+
+    # Filtrar por día y agregar viajes
+    df_dia = df_transporte[df_transporte["dia"] == dia]
+    if df_dia.empty:
+        raise ValueError(f"No hay datos para el día {dia} en {transporte_file.name}")
+
+    df_agg = (
+        df_dia.groupby("provincia origen", as_index=False)["viajes"].sum()
+             .assign(prov_std=lambda d: d["provincia origen"].apply(standardize_province_name))
+    )
+
+    best_field = detectar_campo_provincia(gdf_provincias, df_agg)
+    if best_field is None:
+        raise RuntimeError("No se detectó un campo provincia válido en el geojson")
+
+    gdf_provincias["prov_std"] = gdf_provincias[best_field].apply(standardize_province_name)
+    gdf_merged = gdf_provincias.merge(df_agg[["prov_std", "viajes"]], on="prov_std", how="left")
+    gdf_merged["viajes"] = gdf_merged["viajes"].fillna(0)
+
+    # 50%: agregación lista
+    yield 50
+
+    # Crear mapa base
+    max_viajes = gdf_merged["viajes"].max()
+    centro = gdf_merged.to_crs("EPSG:3857").geometry.centroid.unary_union.centroid
+    centro_latlon = (
+        gpd.GeoSeries([centro], crs="EPSG:3857")
+           .to_crs("EPSG:4326")
+           .iloc[0]
+    )
+    mapa = folium.Map(location=[centro_latlon.y, centro_latlon.x], zoom_start=zoom)
+
+    # 60%: mapa inicializado
+    yield 60
+
+    # Overlay superior
+    template_sup = """
+    {% macro html(this, kwargs) %}
+      <div style="position:fixed; top:10px; left:50%; transform:translate(-50%,0);
+                  z-index:9999; background:white; padding:8px 12px;
+                  border:2px solid grey; border-radius:4px;
+                  font-size:14px; white-space:nowrap;">
+        Ciudad: {{this.ciudad}} | Mes: {{this.mes}} | Sensibilidad: {{this.sensibilidad}}
+      </div>
+    {% endmacro %}
+    """
+    macro_sup = MacroElement()
+    macro_sup._template = Template(template_sup)
+    macro_sup.ciudad = ciudad
+    macro_sup.mes = mes
+    macro_sup.sensibilidad = sensibilidad_color
+    mapa.get_root().add_child(macro_sup)
+
+    # 70%: overlay listo
+    yield 70
+
+    # Añadir GeoJson con estilo y tooltip
+    estudio_std = standardize_province_name(ciudad)
+    def style_function(feat):
+        prov = standardize_province_name(feat["properties"].get(best_field, ""))
+        if prov == estudio_std:
+            fill = "#66f26a"
+        else:
+            fill = get_fill_color(feat["properties"].get("viajes", 0), max_viajes, sensibilidad_color)
+        return {"fillColor": fill, "color": "blue", "weight": 1, "fillOpacity": 1}
+
+    folium.GeoJson(
+        gdf_merged,
+        style_function=style_function,
+        tooltip=folium.features.GeoJsonTooltip(fields=[best_field, "viajes"],
+                                               aliases=["Provincia", "Viajes"])
+    ).add_to(mapa)
+
+    # Leyenda fija
+    legend_html = """
+    <div style="position:fixed; bottom:10px; left:10px; width:260px; height:110px;
+                background:white; border:2px solid grey; border-radius:4px;
+                padding:10px; font-size:13px; z-index:9999;">
+      <b>🗺️ Leyenda</b><br><br>
+      <i style="background:#336699;width:12px;height:12px;display:inline-block;margin-right:5px;"></i>
+        <b>Azul</b>: Provincias de origen<br>
+      &nbsp;&nbsp;Más oscuro → más desplazamientos<br>
+      <i style="background:#66f26a;width:12px;height:12px;display:inline-block;margin-right:5px;"></i>
+        <b>Verde</b>: Provincia destino<br>
+    </div>
+    """
+    mapa.get_root().html.add_child(folium.Element(legend_html))
+
+    # 90%: geojson y leyenda añadidos
+    yield 90
+
+    # Guardar y abrir
+    mapa.save(html_path)
+    if open_browser:
+        webbrowser.open_new_tab(html_path.as_uri())
+
+    # 100%: final
+    yield html_path
+
+
+# In[97]:
+
+
+def exportar_mapa_interactivo_mes(ciudad, mes, sensibilidad_color=3):
+    """
+    Genera un único archivo HTML con todos los mapas de un mes precargados,
+    controlados por un slider. Funciona como generator: emite progreso y
+    al final devuelve la ruta al HTML (y lo abre en el navegador).
+    """
+    transporte_file = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
+    output_html     = RESULTADOS_DIR / f"interactivo_{ciudad}_{int(mes):02}.html"
+
+    if not transporte_file.exists():
+        raise FileNotFoundError(f"No se encontró {transporte_file}")
+
+    df = pd.read_excel(transporte_file)
+    if "dia" not in df.columns:
+        raise ValueError("El Excel no contiene la columna 'dia'")
+
+    dias = sorted(df["dia"].dropna().unique())
+    if not dias:
+        raise ValueError("No hay días disponibles en el archivo")
+
+    total = len(dias)
+    yield 0  # inicio
+
+    mapas_html = {}
+    yield 5  # datos validados
+
+    # 1) Generar cada mapa diario y almacenar su HTML
+    for idx, dia in enumerate(dias, start=1):
+        # Consumir el generator de graficaTransportesDia hasta obtener la ruta
+        gen = graficaTransportesDia(ciudad, dia, mes, sensibilidad_color,
+                                    zoom=6, open_browser=False)
+        html_path = None
+        for value in gen:
+            html_path = value
+        # Leer el HTML generado
+        with open(html_path, "r", encoding="utf-8") as f:
+            mapas_html[dia] = f.read()
+
+        # Reportar progreso de 5→95%
+        pct = 5 + int(idx / total * 90)
+        yield pct
+
+    # 2) Montar el HTML combinado con slider
+    min_dia, max_dia = dias[0], dias[-1]
+    html_output = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <title>Mapas de Transporte – {ciudad.capitalize()} {mes}</title>
+    <style>
+      body {{ margin:0; padding:0; font-family:sans-serif; }}
+      #slider-container {{
+          position: fixed; top: 20px; right: 20px;
+          background: white; padding: 10px; border-radius: 8px;
+          z-index: 9999; box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      }}
+      iframe.map-frame {{
+          position:absolute; top:0; left:0;
+          width:100%; height:100vh; border:none;
+          display:none;
+      }}
+    </style>
+</head>
+<body>
+
+<div id="slider-container">
+  Día:
+  <input type="range" id="diaSlider"
+         min="{min_dia}" max="{max_dia}" value="{min_dia}"
+         oninput="updateMap(this.value)">
+  <span id="diaLabel">{min_dia}</span>
+</div>
+"""
+
+    # Insertar un iframe por día (todos ocultos al inicio)
+    for dia, html in mapas_html.items():
+        esc = html.replace('"', "&quot;")
+        html_output += f'\n<iframe id="map_{dia}" class="map-frame" srcdoc="{esc}"></iframe>'
+
+    # JavaScript para controlar el slider
+    html_output += f"""
+<script>
+function updateMap(dia) {{
+  document.getElementById('diaLabel').textContent = dia;
+  document.querySelectorAll('iframe.map-frame').forEach(f => f.style.display = 'none');
+  var frame = document.getElementById('map_' + dia);
+  if (frame) frame.style.display = 'block';
+}}
+// Mostrar el primer día
+updateMap({min_dia});
+</script>
+
+</body>
+</html>
+"""
+
+    # 95%: HTML preparado
+    yield 95
+
+    # Guardar y abrir
+    with open(output_html, "w", encoding="utf-8") as f:
+        f.write(html_output)
+
+    webbrowser.open_new_tab(output_html.as_uri())
+
+    # 100%: terminado, devolver ruta
+    yield output_html
+
+
+# In[101]:
+
+
+def exportar_mapa_con_imagenes_mes(ciudad, mes,
+                                   sensibilidad_color=3, zoom=7):
+    """
+    Genera un HTML con una imagen PNG (1920×1080) por cada día disponible
+    en el mes indicado. Incluye un slider para cambiar de día.
+    Funciona como generator: emite progreso basado en los mapas ya capturados
+    y, al final, devuelve la ruta al HTML abierto en el navegador.
+    """
+    transporte_file = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
+    output_html     = RESULTADOS_DIR / f"imagenes_{ciudad}_{int(mes)}.html"
+
+    # 0%: inicio
+    yield 0
+
+    if not transporte_file.exists():
+        raise FileNotFoundError(f"No se encontró {transporte_file}")
+
+    df = pd.read_excel(transporte_file)
+    if "dia" not in df.columns:
+        raise ValueError("El Excel no contiene la columna 'dia'")
+
+    dias = sorted(df["dia"].dropna().unique())
+    if not dias:
+        raise ValueError("No hay días disponibles en el archivo")
+
+    total = len(dias)
+    # 5%: datos listos
+    yield 5
+
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--window-size=1920,1080")
+    driver = webdriver.Chrome(options=chrome_options)
+
+    imagenes = {}
+    with TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+
+        for idx, dia in enumerate(dias, start=1):
+            # Consumir el generator para obtener la ruta del HTML
+            gen_map = graficaTransportesDia(
+                ciudad, dia, mes, sensibilidad_color, zoom,
+                open_browser=False
+            )
+            mapa_path = None
+            for mapa_path in gen_map:
+                pass
+
+            # Capturar screenshot
+            driver.get(mapa_path.as_uri())
+            time.sleep(2.5)
+            png_path = tmpdir / f"{ciudad}_{mes}_{dia}.png"
+            driver.save_screenshot(str(png_path))
+
+            # Leer y codificar
+            with open(png_path, "rb") as imgf:
+                img_b64 = base64.b64encode(imgf.read()).decode("utf-8")
+            imagenes[dia] = img_b64
+
+            # Progreso proporcional
+            progreso = int(idx / total * 100)
+            yield progreso
+
+    driver.quit()
+
+    # Construir HTML con slider
+    min_dia, max_dia = min(dias), max(dias)
+    imagenes_json = json.dumps({str(k): v for k, v in imagenes.items()})
+
+    html_output = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Mapas – {ciudad.capitalize()} {mes}</title>
+<style>
+  body {{ margin:0; padding:0; font-family:sans-serif; text-align:center; }}
+  #slider-container {{
+    position:absolute; top:20px; right:20px; background:white;
+    padding:10px; border-radius:8px; z-index:9999;
+    box-shadow:0 0 10px rgba(0,0,0,0.2);
+  }}
+  #map-img {{ width:100%; max-width:1920px; height:auto; }}
+</style>
+</head>
+<body>
+  <div id="slider-container">
+    Día:
+    <input type="range" id="diaSlider" min="{min_dia}" max="{max_dia}" value="{min_dia}"
+           oninput="updateImage(this.value)">
+    <span id="diaLabel">{min_dia}</span>
+  </div>
+  <div>
+    <img id="map-img" src="data:image/png;base64,{imagenes[min_dia]}" alt="Mapa"/>
+  </div>
+<script>
+  var imagenes = {imagenes_json};
+  function updateImage(dia) {{
+      document.getElementById('diaLabel').textContent = dia;
+      var img = imagenes[String(dia)];
+      if (img) document.getElementById('map-img').src = "data:image/png;base64," + img;
+  }}
+</script>
+</body>
+</html>
+"""
+
+    # Guardar HTML final
+    with open(output_html, "w", encoding="utf-8") as f:
+        f.write(html_output)
+
+    # 100%: terminado
+    yield 100
+
+    # Abrir en navegador y devolver ruta
+    webbrowser.open_new_tab(output_html.as_uri())
+    yield output_html
+
+
+# In[85]:
+
+
+def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
+                   ciudad_2, mes_2, sensibilidad_2, zoom=6):
+    """
+    Compara dos series de mapas diarios (ciudad/mes/sensibilidad) lado a lado.
+    Funciona como generator: emite progreso basado en la generación de capturas
+    (2 por día) y, al final, devuelve la ruta al HTML abierto en el navegador.
+    """
+
+    # 0%: inicio
+    yield 0
+
+    # ── Rutas de entrada / salida ───────────────────────────────────────
+    transporte_1 = DATOS_DIR / f"{ciudad_1.lower()}-{int(mes_1):02}.xlsx"
+    transporte_2 = DATOS_DIR / f"{ciudad_2.lower()}-{int(mes_2):02}.xlsx"
+    output_html  = RESULTADOS_DIR / f"comparar_{ciudad_1}_{mes_1}_{ciudad_2}_{mes_2}.html"
+
+    # 5%: comprobar existencia de ficheros
+    if not transporte_1.exists():
+        raise FileNotFoundError(f"No se encontró {transporte_1}")
+    if not transporte_2.exists():
+        raise FileNotFoundError(f"No se encontró {transporte_2}")
+    yield 5
+
+    # ── Cargar datos y rangos comunes ──────────────────────────────────
+    df1 = pd.read_excel(transporte_1)
+    df2 = pd.read_excel(transporte_2)
+    if "dia" not in df1.columns or "dia" not in df2.columns:
+        raise ValueError("Alguno de los Excel no contiene la columna 'dia'")
+
+    dias1 = sorted(df1["dia"].dropna().unique())
+    dias2 = sorted(df2["dia"].dropna().unique())
+    if not dias1 or not dias2:
+        raise ValueError("No hay días disponibles en uno de los archivos")
+
+    slider_min = max(dias1[0], dias2[0])
+    slider_max = min(dias1[-1], dias2[-1])
+    if slider_min > slider_max:
+        raise ValueError("No hay días comunes entre los archivos")
+
+    dias_slider = list(range(int(slider_min), int(slider_max) + 1))
+    yield 15  # datos cargados y filtrados
+
+    # ── Configurar Selenium headless ──────────────────────────────────
+    chrome_opts = Options()
+    chrome_opts.add_argument("--headless")
+    chrome_opts.add_argument("--window-size=960,1080")
+    driver = webdriver.Chrome(options=chrome_opts)
+    yield 20  # Selenium listo
+
+    img_left, img_right = {}, {}
+    total_steps = len(dias_slider) * 2
+    step = 0
+
+    # ── Generar capturas ───────────────────────────────────────────────
+    with TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        for dia in dias_slider:
+            # ---- Mapa izquierda ----
+            gen1 = graficaTransportesDia(
+                ciudad_1, dia, mes_1, sensibilidad_1, zoom,
+                open_browser=False
+            )
+            path1 = None
+            for path1 in gen1:
+                pass
+            driver.get(path1.as_uri())
+            time.sleep(2)
+            png1 = tmpdir / f"{ciudad_1}_{mes_1}_{dia}.png"
+            driver.save_screenshot(str(png1))
+            img_left[str(dia)] = base64.b64encode(png1.read_bytes()).decode("utf-8")
+
+            step += 1
+            yield 20 + int(step / total_steps * 75)
+
+            # ---- Mapa derecha ----
+            gen2 = graficaTransportesDia(
+                ciudad_2, dia, mes_2, sensibilidad_2, zoom,
+                open_browser=False
+            )
+            path2 = None
+            for path2 in gen2:
+                pass
+            driver.get(path2.as_uri())
+            time.sleep(2)
+            png2 = tmpdir / f"{ciudad_2}_{mes_2}_{dia}.png"
+            driver.save_screenshot(str(png2))
+            img_right[str(dia)] = base64.b64encode(png2.read_bytes()).decode("utf-8")
+
+            step += 1
+            yield 20 + int(step / total_steps * 75)
+
+    driver.quit()
+    yield 95  # capturas completas
+
+    # ── Construir HTML comparativo ─────────────────────────────────────
+    imgs1_json = json.dumps(img_left)
+    imgs2_json = json.dumps(img_right)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"/><title>Comparación {ciudad_1} vs {ciudad_2}</title>
+<style>
+  body {{ margin:0; padding:0; font-family:sans-serif; }}
+  #slider-container {{
+    position:fixed; top:20px; left:50%; transform:translateX(-50%);
+    background:white; padding:10px; border-radius:8px; z-index:9999;
+    box-shadow:0 0 10px rgba(0,0,0,0.2); text-align:center;
+  }}
+  .container {{ display:flex; width:100%; height:100vh; }}
+  .map-col {{ flex:1; display:flex; justify-content:center; align-items:center; }}
+  img.map-img {{ max-width:100%; height:auto; }}
+</style>
+</head>
+<body>
+  <div id="slider-container">
+    Día:
+    <input type="range" id="diaSlider" min="{slider_min}" max="{slider_max}" value="{slider_min}"
+           oninput="updateImages(this.value)">
+    <span id="diaLabel">{slider_min}</span>
+  </div>
+  <div class="container">
+    <div class="map-col">
+      <img id="img_left" class="map-img"
+           src="data:image/png;base64,{img_left[str(slider_min)]}"
+           alt="Mapa {ciudad_1}">
+    </div>
+    <div class="map-col">
+      <img id="img_right" class="map-img"
+           src="data:image/png;base64,{img_right[str(slider_min)]}"
+           alt="Mapa {ciudad_2}">
+    </div>
+  </div>
+<script>
+  var imgs1 = {imgs1_json};
+  var imgs2 = {imgs2_json};
+  function updateImages(dia) {{
+      document.getElementById('diaLabel').textContent = dia;
+      var d = String(dia);
+      if (imgs1[d]) document.getElementById('img_left').src  = "data:image/png;base64," + imgs1[d];
+      if (imgs2[d]) document.getElementById('img_right').src = "data:image/png;base64," + imgs2[d];
+  }}
+  updateImages({slider_min});
+</script>
+</body>
+</html>"""
+
+    output_html.write_text(html_content, encoding="utf-8")
+
+    # 100%: terminar
+    yield 100
+
+    # abrir en navegador y devolver ruta
+    webbrowser.open_new_tab(output_html.as_uri())
+    yield output_html
+
+
+# In[115]:
+
+
+def mapa_transportes_relativo(ciudad, dia, mes, sensibilidad=3, open_browser=True):
+    """
+    Mapa Folium con viajes por mil habitantes.
+    Funciona como generator: emite progreso (0–100) y al final la ruta al HTML.
+    """
+    geojson_path = DATOS_DIR / "georef-spain-provincia.geojson"
+    trans_file   = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
+    pop_file     = DATOS_DIR / "poblaciones_provincias.xlsx"
+    html_path    = RESULTADOS_DIR / f"relativo_{ciudad}_{mes}_{dia}.html"
+
+    yield 0
+
+    # Comprobaciones
+    for path,label in [(geojson_path,"georef"),(trans_file,"transporte"),(pop_file,"poblaciones")]:
+        if not path.exists():
+            raise FileNotFoundError(f"{label} no encontrado: {path}")
+    yield 10
+
+    # Carga
+    gdf = gpd.read_file(geojson_path)
+    dfT = pd.read_excel(trans_file)
+    dfP = pd.read_excel(pop_file)
+    yield 25
+
+    # Filtrar
+    df_d = dfT[dfT["dia"]==dia]
+    if df_d.empty:
+        raise ValueError(f"No hay datos para día {dia}")
+    yield 35
+
+    # Agregar viajes
+    df_agg = (
+        df_d.groupby("provincia origen", as_index=False)["viajes"]
+            .sum()
+            .assign(prov_std=lambda d: d["provincia origen"].apply(standardize_province_name))
+    )
+    yield 45
+
+    # Poblaciones
+    dfP["prov_std"] = dfP["provincia"].apply(standardize_province_name)
+    dfP = dfP[~dfP["prov_std"].isin(["portugal","france","francia"])]
+    yield 55
+
+    # Merge viajes+población
+    df_rel = df_agg.merge(dfP[["prov_std","población"]], on="prov_std", how="left")
+    df_rel["población"] = df_rel["población"].fillna(0)
+    df_rel["relativo"] = df_rel.apply(
+        lambda r: (r["viajes"]/r["población"])*1_000 if r["población"]>0 else 0, axis=1
+    )
+    df_rel["relativo_fmt"] = df_rel["relativo"].apply(lambda x: f"{x:.4f}")
+    yield 65
+
+    # Detectar campo
+    campos = [c for c in gdf.columns if c.lower()!="geometry"]
+    provs  = set(df_rel["prov_std"])
+    best, maxm = None, 0
+    for c in campos:
+        m = gdf[c].astype(str).apply(standardize_province_name).isin(provs).sum()
+        if m > maxm:
+            best, maxm = c, m
+    if best is None:
+        raise RuntimeError("No se detectó campo provincia en el geojson")
+    yield 75
+
+    # Merge con geodataframe
+    gdf["prov_std"] = gdf[best].astype(str).apply(standardize_province_name)
+    gdfm = gdf.merge(df_rel[["prov_std","relativo","relativo_fmt"]], on="prov_std", how="left")
+    gdfm["relativo"] = gdfm["relativo"].fillna(0)
+    yield 85
+
+    # Crear mapa y centrar
+    center = gdfm.to_crs("EPSG:3857").geometry.centroid.unary_union.centroid
+    ctr_ll = gpd.GeoSeries([center], crs="EPSG:3857").to_crs("EPSG:4326").iloc[0]
+    m = folium.Map(location=[ctr_ll.y, ctr_ll.x], zoom_start=6)
+    yield 90
+
+    # Overlay superior
+    tpl = """
+    {% macro html(this,kwargs) -%}
+    <div style="position:fixed; top:10px; left:50%; transform:translateX(-50%);
+                background:white; padding:6px 12px; border:2px solid gray;
+                border-radius:4px; font-size:13px; white-space:nowrap; z-index:9999;">
+      Ciudad: {{this.c}} | Día: {{this.d}} | Mes: {{this.m}} | Sensib.: {{this.s}}
+    </div>
+    {%- endmacro %}
+    """
+    mc = MacroElement()
+    mc._template = Template(tpl)
+    mc.c, mc.d, mc.m, mc.s = ciudad, dia, mes, sensibilidad
+    m.get_root().add_child(mc)
+
+    # ======== AQUÍ REINSERTAMOS LA CAPA GeoJson =========
+    estudio_std = standardize_province_name(ciudad)
+    max_rel     = gdfm["relativo"].max() or 1
+    def style_f(feat):
+        prov = standardize_province_name(feat["properties"].get(best,""))
+        if prov == estudio_std:
+            return {"fillColor":"#66f26a","color":"blue","weight":1,"fillOpacity":1}
+        r = feat["properties"].get("relativo",0)
+        if r<=0:
+            return {"fillColor":"#ffffff","color":"blue","weight":1,"fillOpacity":1}
+        norm  = min(r/max_rel,1)
+        inten = norm**(1/sensibilidad)
+        R = 255-int(255*inten); G = 255-int(255*inten); B = 139-int(139*inten)
+        return {"fillColor":f"#{R:02x}{G:02x}{B:02x}","color":"blue","weight":1,"fillOpacity":1}
+
+    folium.GeoJson(
+        gdfm,
+        style_function=style_f,
+        tooltip=folium.features.GeoJsonTooltip(
+            fields=[best,"relativo_fmt"],
+            aliases=["Provincia","Viajes/mil hab."]
+        )
+    ).add_to(m)
+
+    yield 92  # GeoJson añadido
+
+    # Leyenda
+    legend_html = """
+    <div style="
+      position: fixed; 
+      bottom: 10px; left: 10px; width: 240px; height: 130px;
+      background-color: white; border:2px solid grey;
+      border-radius:4px; padding: 10px; font-size: 13px; z-index:9999;
+    ">
+      <b>🗺️ Leyenda</b><br><br>
+      <i style="background: #FFCC00; width: 12px; height: 12px; display:inline-block; margin-right:5px;"></i>
+        <b>Amarillo</b>: Provincias origen<br>
+      &nbsp;&nbsp;Más oscuro → Más viajes/mil hab.<br>
+      <i style="background: #66f26a; width: 12px; height: 12px; display:inline-block; margin-right:5px;"></i>
+        <b>Verde</b>: Provincia destino<br>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+    yield 95  # leyenda añadida
+
+    # Guardar, abrir y devolver
+    m.save(html_path)
+    if open_browser:
+        webbrowser.open_new_tab(html_path.as_uri())
+    yield html_path  # 100% final
+
+
+# In[121]:
+
+
+def exportar_mapa_gif(
+    ciudad,
+    mes,
+    sensibilidad_color=10,
+    zoom=6,
+    duracion_segundos=0.1,
+    open_browser=True,
+    html_wrapper=True,
+):
+    """
+    Genera un GIF animado con capturas diarias del mes indicado.
+    Funciona como generator: emite progreso basado en las capturas,
+    y finalmente devuelve la ruta al archivo abierto en el navegador.
+    """
+
+    excel_path = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
+    gif_path   = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.gif"
+
+    # 0%: inicio
+    yield 0
+
+    if not excel_path.exists():
+        raise FileNotFoundError(f"No se encontró {excel_path}")
+
+    df = pd.read_excel(excel_path)
+    if "dia" not in df.columns:
+        raise ValueError("El Excel no contiene la columna 'dia'")
+
+    dias = sorted(df["dia"].dropna().unique())
+    if not dias:
+        raise ValueError("No hay días válidos en el archivo")
+
+    total = len(dias)
+    # 5%: datos cargados
+    yield 5
+
+    # ── Selenium headless ───────────────────────────────────────────
+    opts = Options()
+    opts.add_argument("--headless")
+    opts.add_argument("--window-size=1920,1080")
+    driver = webdriver.Chrome(options=opts)
+    # 10%: Selenium listo
+    yield 10
+
+    with TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        png_files = []
+
+        # capturar todos los PNG
+        for idx, dia in enumerate(dias, start=1):
+            # generar mapa (generator) y extraer ruta
+            gen = graficaTransportesDia(
+                ciudad, dia, mes, sensibilidad_color, zoom,
+                open_browser=False
+            )
+            mapa_path = None
+            for mapa_path in gen:
+                pass
+
+            driver.get(mapa_path.as_uri())
+            time.sleep(2)
+            png_tmp = tmpdir / f"{ciudad}_{mes}_{dia}.png"
+            driver.save_screenshot(str(png_tmp))
+            png_files.append(png_tmp)
+
+            # progreso proporcional (10→90%)
+            progreso = 10 + int(idx / total * 80)
+            yield progreso
+
+        # ya no necesitamos Selenium
+        driver.quit()
+
+        # ── Crear GIF dentro del mismo tmpdir ────────────────────────
+        fps = 1 / duracion_segundos
+        with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
+            for png in png_files:
+                writer.append_data(imageio.imread(png))
+        # 95%: GIF creado
+        yield 95
+
+    # fuera del with TemporaryDirectory los PNG ya han sido borrados, pero el GIF está hecho
+
+    # ── (Opcional) envolver en HTML ─────────────────────────────────
+    if html_wrapper:
+        html_path = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.html"
+        html_code = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>GIF – {ciudad.capitalize()} {mes}</title>
+  <style>
+    body {{
+      margin:0; display:flex; justify-content:center; align-items:center;
+      height:100vh; background:#000;
+    }}
+    img {{ max-width:100%; height:auto; }}
+  </style>
+</head>
+<body>
+  <img src="{gif_path.name}" alt="Mapa GIF">
+</body>
+</html>"""
+        html_path.write_text(html_code, encoding="utf-8")
+        target = html_path
+    else:
+        target = gif_path
+
+    if open_browser:
+        webbrowser.open_new_tab(target.as_uri())
+
+    # 100%: finalizado, devolver ruta
+    yield target
+
+
+# In[ ]:
+
+
+
+
