@@ -197,7 +197,7 @@ elif op == menu[5]:
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     z = st.number_input("Zoom", 4, 10, 6)
     secs = st.number_input("Segundos por frame", 0.05, 2.0, 0.1, step=0.05)
-    if st st.button("Generar GIF"):
+    if st.button("Generar GIF"):
         ruta = show_progress(exportar_mapa_gif(c, m_, s, z, secs, open_browser=False))
         ruta = Path(ruta)
         if ruta.exists():
