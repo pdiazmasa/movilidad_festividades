@@ -44,8 +44,41 @@ st.title("🗺️ GENERADOR DE MAPAS 🗺️")
 for k in ("mapa_dia", "params_dia"):
     st.session_state.setdefault(k, None)
 
-# -------- Utilidades --------
+# -------- Funciones y descripciones --------
+menu = [
+    "🗓️ Mapa interactivo de un día",
+    "📅 Mapa Interactivo de un mes",
+    "🖼️ Mapa de un mes con imágenes",
+    "🆚 Comparar dos mapas",
+    "📊 Mapa relativo de un día",
+    "🎞️ GIF de un mes",
+]
+titles = {
+    menu[0]: "Transporte Día",
+    menu[1]: "Mapa Interactivo Mensual",
+    menu[2]: "Mapa Mensual con Imágenes",
+    menu[3]: "Comparación de Ciudades",
+    menu[4]: "Transporte Relativo por Habitante",
+    menu[5]: "GIF Animado del Mes",
+}
+descs = {
+    menu[0]: "Colorea las provincias según volumen de viajes en un día concreto.",
+    menu[1]: "Genera un HTML con todos los días y un slider para navegar entre ellos.",
+    menu[2]: "Toma capturas PNG diarias e incrústalas en un HTML con slider.",
+    menu[3]: "Muestra lado a lado dos provincias para un rango de días común.",
+    menu[4]: "Colorea según viajes por mil habitantes, resaltando la provincia destino.",
+    menu[5]: "Crea un GIF animado con la evolución diaria del mes.",
+}
+funcs = {
+    menu[0]: ("graficaTransportesDia", "Genera un folium.Map y lo devuelve para Streamlit."),
+    menu[1]: ("exportar_mapa_interactivo_mes", "Genera un HTML interactivo con slider mensual."),
+    menu[2]: ("exportar_mapa_con_imagenes_mes", "Captura PNG Hi-DPI diarios y monta un HTML."),
+    menu[3]: ("comparar_mapas", "Compara dos series de mapas en un único HTML."),
+    menu[4]: ("mapa_transportes_relativo", "Mapa coloreado por viajes por mil habitantes."),
+    menu[5]: ("exportar_mapa_gif", "Genera un GIF animado de la serie de mapas."),
+}
 
+# -------- Utilidades --------
 def show_progress(gen):
     bar = st.progress(0)
     res = None
@@ -57,10 +90,8 @@ def show_progress(gen):
     bar.empty()
     return res
 
-
 def embed_folium(m, w=760, h=560):
     components.html(m.get_root().render(), width=w, height=h, scrolling=False)
-
 
 def download_button_from_path(path: Path, label: str):
     if not path or not path.exists():
@@ -69,10 +100,8 @@ def download_button_from_path(path: Path, label: str):
     mime = mime or "application/octet-stream"
     st.download_button(label, path.read_bytes(), file_name=path.name, mime=mime)
 
-
 def download_button_from_html(html: str, filename: str, label: str):
-    st.download_button(label, html.encode("utf-8"), file_name=filename,
-                       mime="text/html")
+    st.download_button(label, html.encode("utf-8"), file_name=filename, mime="text/html")
 
 @st.cache_resource(show_spinner=False)
 def cache_mapa(c, d, m_, s, z):
@@ -80,16 +109,14 @@ def cache_mapa(c, d, m_, s, z):
         if not isinstance(chunk, int):
             return chunk
 
-# -------- Menú --------
-menu = [
-    "🗓️ Mapa interactivo de un día",
-    "📅 Mapa Interactivo de un mes",
-    "🖼️ Mapa de un mes con imágenes",
-    "🆚 Comparar dos mapas",
-    "📊 Mapa relativo de un día",
-    "🎞️ GIF de un mes",
-]
+# -------- Sidebar y selección --------
 choice = st.sidebar.radio("Elige función", menu)
+
+# -------- Cabecera, descripción y función --------
+st.header(titles[choice])
+st.markdown(descs[choice])
+fn_name, fn_desc = funcs[choice]
+st.markdown(f"**Función utilizada:** `{fn_name}()`  \n*{fn_desc}*")
 
 # -------- 1) Mapa interactivo de un día --------
 if choice == menu[0]:
@@ -136,7 +163,7 @@ elif choice == menu[3]:
     c2 = st.text_input("Provincia B")
     m2 = st.number_input("Mes B", 1, 12, 1, key="m2")
     s2 = st.number_input("Sensibilidad B", 1, 10, 3, key="s2")
-    z = st.number_input("Zoom", 4, 10, 6)
+    z  = st.number_input("Zoom", 4, 10, 6)
     if st.button("Generar comparativa"):
         ruta = Path(show_progress(comparar_mapas(c1, m1, s1, c2, m2, s2, z)))
         st.success("HTML comparativo ✔")
@@ -151,8 +178,9 @@ elif choice == menu[4]:
     if st.button("Generar mapa relativo"):
         ruta = Path(show_progress(mapa_transportes_relativo(c, d, m_, s, open_browser=False)))
         if ruta.exists():
-            components.html(ruta.read_text(encoding="utf-8"), width=760, height=560, scrolling=False)
-            download_button_from_path(ruta, "Descargar HTML")
+            components.html(ruta.read_text(encoding="utf-8"),
+                            width=760, height=560, scrolling=False)
+        download_button_from_path(ruta, "Descargar HTML")
 
 # -------- 6) GIF animado --------
 elif choice == menu[5]:
@@ -165,7 +193,8 @@ elif choice == menu[5]:
         ruta = Path(show_progress(exportar_mapa_gif(
             c, m_, s, z, secs,
             open_browser=False,
-            html_wrapper=False)))
+            html_wrapper=False
+        )))
         if ruta.exists():
             st.success("GIF generado ✔")
             download_button_from_path(ruta, "Descargar GIF")
