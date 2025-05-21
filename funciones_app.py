@@ -238,6 +238,7 @@ def graficaTransportesDia(
     yield 60
 
     # ── overlays con dpi_scale ──────────────────────────────────────────
+    legend_scale = dpi_scale*0.8
     font_sup    = round(14 * dpi_scale, 1)
     font_legend = round(13 * dpi_scale, 1)
 
@@ -281,20 +282,20 @@ def graficaTransportesDia(
     legend_width = int(260 * dpi_scale)   # 260px a escala 1 → más ancho en Hi-DPI
 
     legend_html = f"""
-    <div style="position:fixed; bottom:10px; left:10px;
-                width:{legend_width}px;           /* sin height → crece solo */
-                background:white; border:2px solid grey; border-radius:4px;
-                padding:10px; font-size:{font_legend}px; z-index:9999;">
-      <b>🗺️ Leyenda</b><br><br>
-      <i style="background:#336699;width:12px;height:12px;
-                display:inline-block;margin-right:5px;"></i>
-        <b>Azul</b>: Provincias de origen<br>
-      &nbsp;&nbsp;Más oscuro → más desplazamientos<br>
-      <i style="background:#66f26a;width:12px;height:12px;
-                display:inline-block;margin-right:5px;"></i>
-        <b>Verde</b>: Provincia destino<br>
-    </div>
-    """
+<div style="position:fixed; bottom:10px; left:10px;
+            width:{legend_width}px;
+            background:white; border:2px solid grey; border-radius:4px;
+            padding:10px; font-size:{font_legend}px; z-index:9999;">
+  <b>🗺️ Leyenda</b><br><br>
+  <i style="background:#336699;width:12px;height:12px;
+            display:inline-block;margin-right:5px;"></i>
+    <b>Azul</b>: Provincias de origen<br>
+  &nbsp;&nbsp;Más oscuro → más desplazamientos<br>
+  <i style="background:#66f26a;width:12px;height:12px;
+            display:inline-block;margin-right:5px;"></i>
+    <b>Verde</b>: Provincia destino<br>
+</div>
+"""
     mapa.get_root().html.add_child(folium.Element(legend_html))
     yield 90
 
