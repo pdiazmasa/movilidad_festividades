@@ -86,7 +86,7 @@ if op == "🗓️ Mapa interactivo de un día":
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     z = st.number_input("Zoom", 4, 10, 6)
     if st.button("Generar"):
-        ruta = show_progress(graficaTransportesDia(c, d, m, s, z, open_browser=True))
+        ruta = show_progress(graficaTransportesDia(c, d, m, s, z))
         st.success(f"Mapa generado: {ruta}")
 
 elif op == "📅 Mapa Interactivo de un mes":
