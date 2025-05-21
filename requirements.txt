@@ -13,3 +13,4 @@ pyogrio
 openpyxl
 streamlit-folium
 selenium
+matplotlib
