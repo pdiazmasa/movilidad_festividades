@@ -421,8 +421,6 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
     DEVICE_SCALE         = 2               # —force-device-scale-factor
     TARGET_DISPLAY_WIDTH = 1920            # ancho final del <img>
 
-    /* factor natural ≈ 2.67 → lo reducimos para que texto/leyenda
-    queden ~40 % más pequeños que antes y se parezcan al modo interactivo */
     base_scale = (WINDOW_W * DEVICE_SCALE) / TARGET_DISPLAY_WIDTH  # ≈ 2.67
     dpi_scale  = base_scale * 0.6          # ≈ 1.60
 
