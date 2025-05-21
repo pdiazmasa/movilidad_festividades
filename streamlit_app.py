@@ -162,7 +162,10 @@ elif choice == menu[5]:
     z = st.number_input("Zoom", 4, 10, 6)
     secs = st.number_input("Segundos por frame", 0.05, 2.0, 0.1, step=0.05)
     if st.button("Generar GIF"):
-        ruta = Path(show_progress(exportar_mapa_gif(c, m_, s, z, secs, open_browser=False)))
+        ruta = Path(show_progress(exportar_mapa_gif(
+            c, m_, s, z, secs,
+            open_browser=False,
+            html_wrapper=False)))
         if ruta.exists():
             st.success("GIF generado ✔")
             download_button_from_path(ruta, "Descargar GIF")
