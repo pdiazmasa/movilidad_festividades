@@ -395,96 +395,67 @@ chg({min_d});
 def exportar_mapa_con_imagenes_mes(ciudad, mes,
                                    sensibilidad_color=3, zoom=7):
     """
-    Genera un HTML con una imagen PNG (1920×1080) por cada día del mes.
-    Incluye un slider y, al final, devuelve la ruta del HTML para que
-    Streamlit ofrezca el botón de descarga.
+    Versión sin Selenium: genera un HTML con un iframe Folium por día
+    y slider para alternar. Devuelve la ruta del HTML para descargar.
     """
+    xls = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
+    out = RESULTADOS_DIR / f"interactivo_iframe_{ciudad}_{int(mes):02}.html"
 
-    transporte_file = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
-    output_html     = RESULTADOS_DIR / f"imagenes_{ciudad}_{int(mes):02}.html"
-
-    # 0 % ── comprobaciones básicas
     yield 0
-    if not transporte_file.exists():
-        raise FileNotFoundError(f"No se encontró {transporte_file}")
-
-    df      = pd.read_excel(transporte_file)
-    dias    = sorted(df["dia"].dropna().unique())
+    if not xls.exists():
+        raise FileNotFoundError(xls)
+    df = pd.read_excel(xls)
+    dias = sorted(df["dia"].dropna().unique())
     if not dias:
-        raise ValueError("No hay días disponibles en el archivo")
-
+        raise ValueError("No hay días en el Excel")
     total = len(dias)
-    yield 5   # datos listos
+    yield 5   # datos ok
 
-    # ── Selenium headless para las capturas PNG ───────────────────────────
-    opts = Options()
-    opts.add_argument("--headless")
-    opts.add_argument("--window-size=1920,1080")
-    driver = webdriver.Chrome(options=opts)
+    # ── generar HTML de cada mapa ────────────────────────────
+    maps_html = {}
+    for idx, dia in enumerate(dias, 1):
+        gen = graficaTransportesDia(ciudad, dia, mes,
+                                    sensibilidad_color, zoom)
+        mapa = None
+        for chunk in gen:
+            if not isinstance(chunk, int):
+                mapa = chunk
+        maps_html[dia] = mapa.get_root().render()
+        yield 5 + int(idx / total * 90)   # progreso 5-95
 
-    imagenes_b64 = {}
-    with TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-
-        for idx, dia in enumerate(dias, start=1):
-            # generar el mapa Folium (nuevo API sin open_browser)
-            gen = graficaTransportesDia(ciudad, dia, mes,
-                                        sensibilidad_color, zoom)
-            mapa = None
-            for chunk in gen:
-                if not isinstance(chunk, int):
-                    mapa = chunk
-
-            # guardar HTML temporal del mapa
-            tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
-            tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
-
-            # capturar screenshot PNG
-            driver.get(tmp_html.as_uri())
-            time.sleep(2.5)
-            png_path = tmpdir / f"{ciudad}_{mes}_{dia}.png"
-            driver.save_screenshot(str(png_path))
-
-            # codificar a Base-64 para incrustarlo en el HTML final
-            imagenes_b64[dia] = base64.b64encode(
-                png_path.read_bytes()
-            ).decode("utf-8")
-
-            # progreso proporcional (5 % → 95 %)
-            yield 5 + int(idx / total * 90)
-
-    driver.quit()
-
-    # ── Construir HTML con slider ─────────────────────────────────────────
-    min_d, max_d = min(dias), max(dias)
-    imgs_json    = json.dumps({str(k): v for k, v in imagenes_b64.items()})
-
-    html_final = f"""<!DOCTYPE html>
+    # ── ensamblar documento final con slider ─────────────────
+    min_d, max_d = dias[0], dias[-1]
+    html = [f"""<!DOCTYPE html>
 <html lang="es"><head>
 <meta charset="utf-8"/>
-<title>Mapas – {ciudad.capitalize()} {mes}</title>
+<title>Mapas {ciudad} {mes}</title>
 <style>
- body{{margin:0;font-family:sans-serif;text-align:center}}
- #ctl{{position:absolute;top:20px;right:20px;background:#fff;padding:10px;
-      border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,.2);z-index:9999}}
- #map-img{{width:100%;max-width:1920px;height:auto}}
+ body{{margin:0}} iframe.map{{position:absolute;top:0;left:0;width:100%;height:100vh;border:none;display:none}}
+ #ctl{{position:fixed;top:20px;right:20px;background:#fff;padding:10px;border-radius:8px;box-shadow:0 0 10px #0003;z-index:9}}
 </style></head><body>
 <div id="ctl">
-  Día:
-  <input type="range" id="slider" min="{min_d}" max="{max_d}" value="{min_d}"
-         oninput="chg(this.value)">
-  <span id="lbl">{min_d}</span>
-</div>
-<img id="map-img" src="data:image/png;base64,{imagenes_b64[min_d]}" alt="Mapa"/>
-<script>
-const imgs={imgs_json};
-function chg(v){{document.getElementById('lbl').textContent=v;
-  document.getElementById('map-img').src='data:image/png;base64,'+imgs[v];}}
-</script></body></html>"""
+ Día: <input type="range" id="slider" min="{min_d}" max="{max_d}"
+             value="{min_d}" oninput="chg(this.value)">
+ <span id="lbl">{min_d}</span>
+</div>"""]
 
-    output_html.write_text(html_final, encoding="utf-8")
-    yield 100           # progreso final
-    yield output_html   # devuelve la ruta al HTML
+    for d, h in maps_html.items():
+        esc = h.replace('"', "&quot;")
+        html.append(f'<iframe id="d{d}" class="map" srcdoc="{esc}"></iframe>')
+
+    html.append(f"""
+<script>
+function chg(v){{
+  document.getElementById('lbl').textContent=v;
+  document.querySelectorAll('iframe.map').forEach(f=>f.style.display='none');
+  let fr=document.getElementById('d'+v); if(fr) fr.style.display='block';
+}}
+chg({min_d});
+</script></body></html>""")
+
+    out.write_text("".join(html), encoding="utf-8")
+    yield 100
+    yield out
 
 
 # In[85]:
