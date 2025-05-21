@@ -391,7 +391,6 @@ chg({min_d});
 
 # In[101]:
 
-
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 import base64, json, time
@@ -400,15 +399,14 @@ from tempfile import TemporaryDirectory
 def exportar_mapa_con_imagenes_mes(ciudad, mes,
                                    sensibilidad_color=3, zoom=7):
     """
-    Genera un HTML con una imagen PNG (1920×1080) por cada día disponible
-    y un slider para alternar. Devuelve la ruta del HTML final.
-    Progreso emitido: 0–100.
+    Genera un HTML con una imagen PNG de alta resolución (2560×1440, escala 2×)
+    por cada día disponible y un slider para alternar. Devuelve la ruta del
+    HTML final.  Progreso emitido: 0-100.
     """
-
     xls = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
     out = RESULTADOS_DIR / f"imagenes_{ciudad}_{int(mes):02}.html"
 
-    # 0 % ── comprobaciones básicas
+    # ── 0 %: comprobaciones ─────────────────────────────────────────────
     yield 0
     if not xls.exists():
         raise FileNotFoundError(xls)
@@ -417,48 +415,50 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
     if not dias:
         raise ValueError("No hay días en el Excel")
     total = len(dias)
-    yield 5  # datos OK
+    yield 5    # datos OK
 
-    # ── Selenium headless (Chromium instalado vía packages.txt) ────────────
+    # ── Selenium headless Hi-DPI ────────────────────────────────────────
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    service = Service("/usr/bin/chromedriver")  # viene de apt install
-    driver = webdriver.Chrome(service=service, options=opts)
+    opts.add_argument("--window-size=2560,1440")          # lienzo grande
+    opts.add_argument("--force-device-scale-factor=2")    # Hi-DPI 2×
+    service = Service("/usr/bin/chromedriver")
+    driver  = webdriver.Chrome(service=service, options=opts)
 
     imgs_b64 = {}
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
 
         for idx, dia in enumerate(dias, 1):
-            # generar mapa folium
-            gen = graficaTransportesDia(ciudad, dia, mes,
-                                        sensibilidad_color, zoom)
+            # generar mapa Folium
             mapa = None
-            for chunk in gen:
+            for chunk in graficaTransportesDia(ciudad, dia, mes,
+                                               sensibilidad_color, zoom):
                 if not isinstance(chunk, int):
                     mapa = chunk
 
-            # guardar HTML temporal del mapa
+            # guardar HTML temporal
             tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
             tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
 
             # capturar PNG
             driver.get(tmp_html.as_uri())
-            time.sleep(3)
+            time.sleep(3)                                 # espera tiles
             png_path = tmpdir / f"{ciudad}_{mes}_{dia}.png"
             driver.save_screenshot(str(png_path))
 
-            # codificar en Base-64
-            imgs_b64[dia] = base64.b64encode(png_path.read_bytes()).decode("utf-8")
+            # a Base-64
+            imgs_b64[dia] = base64.b64encode(
+                png_path.read_bytes()).decode("utf-8")
 
-            # progreso (5 % → 95 %)
+            # progreso 5 → 95 %
             yield 5 + int(idx / total * 90)
 
     driver.quit()
 
-    # ── construir HTML con slider ─────────────────────────────────────────
+    # ── construir HTML con slider ───────────────────────────────────────
     min_d, max_d = dias[0], dias[-1]
     imgs_json    = json.dumps({str(k): v for k, v in imgs_b64.items()})
 
@@ -469,7 +469,8 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
 <style>
  body{{margin:0;font-family:sans-serif;text-align:center}}
  #ctl{{position:absolute;top:20px;right:20px;background:#fff;padding:10px;
-      border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,.2);z-index:9999}}
+      border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,.2);z-index:9999;
+      font-size:14px}}
  #map-img{{width:100%;max-width:1920px;height:auto}}
 </style></head><body>
 <div id="ctl">
@@ -490,6 +491,7 @@ function chg(v){{
     out.write_text(html_final, encoding="utf-8")
     yield 100
     yield out
+
 
 # In[85]:
 
