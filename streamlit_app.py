@@ -26,6 +26,8 @@ if getattr(sys, "frozen", False):
 # A partir de aquí, **solo** en desarrollo (python -m streamlit run streamlit_app.py)
 
 import streamlit as st
+from streamlit_folium import st_folium
+
 from funciones_app import (
     graficaTransportesDia,
     exportar_mapa_interactivo_mes,
@@ -35,18 +37,26 @@ from funciones_app import (
     exportar_mapa_gif,
 )
 
-# Configuración y UI de Streamlit
+# ── Configuración de página ─────────────────────────────────────────────────
 st.set_page_config(page_title="Panel de Movilidad", page_icon="🧭")
 st.title("🗺️ GENERADOR DE MAPAS 🗺️")
 
-op = st.sidebar.radio("Elige función", [
-    "🗓️ Mapa interactivo de un día",
-    "📅 Mapa Interactivo de un mes",
-    "🖼️ Mapa de un mes con imágenes",
-    "🆚 Comparar dos mapas",
-    "📊 Mapa relativo de un día",
-    "🎞️ GIF de un mes",
-])
+# ── Estado inicial ──────────────────────────────────────────────────────────
+if "mapa_dia" not in st.session_state:
+    st.session_state["mapa_dia"] = None  # para el modo "Mapa interactivo de un día"
+
+# ── Selector lateral ────────────────────────────────────────────────────────
+op = st.sidebar.radio(
+    "Elige función",
+    [
+        "🗓️ Mapa interactivo de un día",
+        "📅 Mapa Interactivo de un mes",
+        "🖼️ Mapa de un mes con imágenes",
+        "🆚 Comparar dos mapas",
+        "📊 Mapa relativo de un día",
+        "🎞️ GIF de un mes",
+    ],
+)
 
 titles = {
     "🗓️ Mapa interactivo de un día":     "Transporte Día",
@@ -56,6 +66,7 @@ titles = {
     "📊 Mapa relativo de un día":        "Transporte Relativo por Habitante",
     "🎞️ GIF de un mes":                 "GIF Animado del Mes",
 }
+
 descs = {
     "🗓️ Mapa interactivo de un día":     "Colorea las provincias según volumen de viajes en un día concreto.",
     "📅 Mapa Interactivo de un mes":     "Genera un HTML con todos los días y un slider para navegar entre ellos.",
@@ -68,14 +79,21 @@ descs = {
 st.header(titles[op])
 st.markdown(descs[op])
 
+# ── Utilidad para progreso ─────────────────────────────────────────────────
+
 def show_progress(generator):
+    """Muestra una única barra de progreso y devuelve el resultado final."""
+    barra = st.progress(0)
     resultado = None
-    for progreso in generator:
-        if isinstance(progreso, int):
-            st.progress(progreso)
+    for paso in generator:
+        if isinstance(paso, int):
+            barra.progress(paso)
         else:
-            resultado = progreso
+            resultado = paso
+    barra.empty()
     return resultado
+
+# ── Lógica por modo ────────────────────────────────────────────────────────
 
 if op == "🗓️ Mapa interactivo de un día":
     c = st.text_input("Provincia")
@@ -83,10 +101,14 @@ if op == "🗓️ Mapa interactivo de un día":
     m = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     z = st.number_input("Zoom", 4, 10, 6)
+
     if st.button("Generar"):
-        from streamlit_folium import st_folium
-        mapa = show_progress(graficaTransportesDia(c, d, m, s, z))
-        st_folium(mapa, width=700, height=500)
+        st.session_state["mapa_dia"] = show_progress(
+            graficaTransportesDia(c, d, m, s, z)
+        )
+
+    if st.session_state["mapa_dia"] is not None:
+        st_folium(st.session_state["mapa_dia"], width=750, height=550)
 
 elif op == "📅 Mapa Interactivo de un mes":
     c = st.text_input("Provincia")
