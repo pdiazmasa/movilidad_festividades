@@ -1,12 +1,12 @@
-# streamlit_app.py – versión completa y corregida
+# streamlit_app.py – versión final estable
 
 import sys
 import subprocess
-import uuid
 from pathlib import Path
 
 import streamlit as st
-from streamlit_folium import st_folium
+import streamlit.components.v1 as components
+from streamlit_folium import st_folium  # necesario para otros modos
 
 from funciones_app import (
     graficaTransportesDia,
@@ -18,7 +18,7 @@ from funciones_app import (
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Soporte para PyInstaller (opcional)
+# Soporte para PyInstaller (opcional). Ignóralo en Streamlit Cloud.
 if getattr(sys, "frozen", False):
     temp_dir = Path(sys.argv[0]).parent
     script = temp_dir / "streamlit_app.py"
@@ -79,7 +79,7 @@ descripciones = {
 st.header(titles[op])
 st.markdown(descripciones[op])
 
-# ── Utilidad para progreso ─────────────────────────────────────────────────
+# ── Utilidades ──────────────────────────────────────────────────────────────
 
 def show_progress(generator):
     barra = st.progress(0)
@@ -92,7 +92,13 @@ def show_progress(generator):
     barra.empty()
     return resultado
 
-# ── Cacheado rápido: reconstruye un mapa ya solicitado ──────────────────────
+# Folium dentro de Streamlit sin perder la capa GeoJSON
+
+def folium_static(mapa, width=760, height=560):
+    html = mapa.get_root().render()
+    components.html(html, width=width, height=height, scrolling=False)
+
+# Cache de mapas para evitar regenerar tras cada rerun
 @st.cache_resource(show_spinner=False)
 def build_map(c, d, m_, s, z):
     gen = graficaTransportesDia(c, d, m_, s, z)
@@ -122,12 +128,7 @@ if op == opciones[0]:
         st.session_state["mapa_dia"] = build_map(*st.session_state["params_dia"])
 
     if st.session_state["mapa_dia"] is not None:
-        st_folium(
-            st.session_state["mapa_dia"],
-            width=760,
-            height=560,
-            key=f"mapa_dia_{uuid.uuid4()}",
-        )
+        folium_static(st.session_state["mapa_dia"])  # sin perder GeoJSON
 
 # 2) HTML mensual interactivo --------------------------------------------------
 elif op == opciones[1]:
@@ -177,7 +178,4 @@ elif op == opciones[5]:
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     z = st.number_input("Zoom", 4, 10, 6)
-    secs = st.number_input("Segundos por frame", 0.05, 2.0, 0.1, step=0.05)
-    if st.button("Generar"):
-        ruta = show_progress(exportar_mapa_gif(c, m_, s, z, secs, open_browser=True))
-        st.success(f"GIF generado: {ruta}")
+    secs = st.number_input("Segundos por frame", 0.05, 2.0, 0.
