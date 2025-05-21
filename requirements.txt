@@ -12,3 +12,4 @@ widgetsnbextension
 pyogrio
 openpyxl
 streamlit-folium
+selenium
