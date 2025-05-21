@@ -278,10 +278,12 @@ def graficaTransportesDia(
     ).add_to(mapa)
 
     # ── leyenda ─────────────────────────────────────────────────────────
+    legend_width = int(260 * dpi_scale)   # 260px a escala 1 → más ancho en Hi-DPI
+
     legend_html = f"""
     <div style="position:fixed; bottom:10px; left:10px;
-                width:260px; height:110px; background:white;
-                border:2px solid grey; border-radius:4px;
+                width:{legend_width}px;           /* sin height → crece solo */
+                background:white; border:2px solid grey; border-radius:4px;
                 padding:10px; font-size:{font_legend}px; z-index:9999;">
       <b>🗺️ Leyenda</b><br><br>
       <i style="background:#336699;width:12px;height:12px;
