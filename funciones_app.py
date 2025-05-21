@@ -527,83 +527,111 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
                    ciudad_2, mes_2, sensibilidad_2,
                    zoom: int = 6):
     """
-    Captura dos series de mapas y genera un HTML con slider y los dos
-    mapas lado a lado. Solo el mapa izquierdo muestra la leyenda.
-    Progreso 0–100; al final devuelve el Path.
+    Captura dos series de mapas diarios (960×1080 CSS px, escala 2×)
+    SIN leyenda en las capturas y genera un HTML responsive con slider
+    y ambos mapas lado a lado. Añade UNA sola leyenda global en el HTML.
+    Progreso 0–100; al final devuelve el Path al HTML.
     """
     yield 0
     f1 = DATOS_DIR / f"{ciudad_1.lower()}-{int(mes_1):02}.xlsx"
     f2 = DATOS_DIR / f"{ciudad_2.lower()}-{int(mes_2):02}.xlsx"
-    out= RESULTADOS_DIR / f"comparar_{ciudad_1}_{mes_1}_{ciudad_2}_{mes_2}.html"
+    out = RESULTADOS_DIR / f"comparar_{ciudad_1}_{mes_1}_{ciudad_2}_{mes_2}.html"
     if not f1.exists() or not f2.exists():
         raise FileNotFoundError("Falta algún Excel")
     yield 5
 
     d1 = sorted(pd.read_excel(f1)["dia"].dropna().unique())
     d2 = sorted(pd.read_excel(f2)["dia"].dropna().unique())
-    s_min,s_max = max(d1[0],d2[0]), min(d1[-1],d2[-1])
-    if s_min> s_max:
+    s_min, s_max = max(d1[0], d2[0]), min(d1[-1], d2[-1])
+    if s_min > s_max:
         raise ValueError("No hay días comunes")
-    dias=list(range(int(s_min),int(s_max)+1))
+    dias = list(range(int(s_min), int(s_max) + 1))
     yield 15
 
-    # Selenium 960×1080 CSS px, 2× escala
-    CSS_W, CSS_H = 960,1080
+    # Selenium headless 960×1080 CSS px, escala 2×
+    CSS_W, CSS_H = 960, 1080
     DEV_SCALE    = 2
     dpi_scale    = 0.90
 
-    opts=Options()
+    opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument(f"--window-size={CSS_W},{CSS_H}")
     opts.add_argument(f"--force-device-scale-factor={DEV_SCALE}")
-    driver=webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=opts)
+    driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=opts)
     yield 20
 
-    L,R={},{}
-    total=len(dias)*2
-    step=0
+    L, R = {}, {}
+    total = len(dias) * 2
+    step  = 0
 
     with TemporaryDirectory() as tmp:
-        tmp=Path(tmp)
+        tmp = Path(tmp)
         for dia in dias:
-            # izquierda: con leyenda
-            m1 = next(ch for ch in
-                      graficaTransportesDia(ciudad_1,dia,mes_1,
-                                            sensibilidad_1,zoom,
-                                            dpi_scale=dpi_scale,
-                                            legend_side="left")
-                      if not isinstance(ch,int))
-            h1=tmp/f"L_{dia}.html"
-            h1.write_text(m1.get_root().render(),encoding="utf-8")
+            # Mapa izquierdo SIN leyenda
+            mapa1 = next(ch for ch in
+                         graficaTransportesDia(
+                             ciudad_1, dia, mes_1,
+                             sensibilidad_1, zoom,
+                             dpi_scale=dpi_scale,
+                             legend_side=None
+                         )
+                         if not isinstance(ch, int))
+            h1 = tmp / f"L_{dia}.html"
+            h1.write_text(mapa1.get_root().render(), encoding="utf-8")
             driver.get(h1.as_uri()); time.sleep(2.2)
-            p1=tmp/f"L_{dia}.png"
+            p1 = tmp / f"L_{dia}.png"
             driver.save_screenshot(str(p1))
-            L[str(dia)]=base64.b64encode(p1.read_bytes()).decode()
-            step+=1; yield 20+int(step/total*75)
+            L[str(dia)] = base64.b64encode(p1.read_bytes()).decode()
+            step += 1; yield 20 + int(step / total * 75)
 
-            # derecha: sin leyenda
-            m2 = next(ch for ch in
-                      graficaTransportesDia(ciudad_2,dia,mes_2,
-                                            sensibilidad_2,zoom,
-                                            dpi_scale=dpi_scale,
-                                            legend_side=None)
-                      if not isinstance(ch,int))
-            h2=tmp/f"R_{dia}.html"
-            h2.write_text(m2.get_root().render(),encoding="utf-8")
+            # Mapa derecho SIN leyenda
+            mapa2 = next(ch for ch in
+                         graficaTransportesDia(
+                             ciudad_2, dia, mes_2,
+                             sensibilidad_2, zoom,
+                             dpi_scale=dpi_scale,
+                             legend_side=None
+                         )
+                         if not isinstance(ch, int))
+            h2 = tmp / f"R_{dia}.html"
+            h2.write_text(mapa2.get_root().render(), encoding="utf-8")
             driver.get(h2.as_uri()); time.sleep(2.2)
-            p2=tmp/f"R_{dia}.png"
+            p2 = tmp / f"R_{dia}.png"
             driver.save_screenshot(str(p2))
-            R[str(dia)]=base64.b64encode(p2.read_bytes()).decode()
-            step+=1; yield 20+int(step/total*75)
+            R[str(dia)] = base64.b64encode(p2.read_bytes()).decode()
+            step += 1; yield 20 + int(step / total * 75)
 
-    driver.quit(); yield 95
+    driver.quit()
+    yield 95
 
-    # HTML final
-    html=f"""<!DOCTYPE html>
+    # Construir HTML final con UNA sola leyenda
+    legend_html = f"""
+    <div style="
+        position:fixed;
+        bottom:10px;
+        left:10px;
+        width:260px;
+        background:white;
+        border:2px solid grey;
+        border-radius:4px;
+        padding:10px;
+        font-size:13px;
+        z-index:9999;
+    ">
+      <b>🗺️ Leyenda</b><br><br>
+      <i style="background:#336699;width:12px;height:12px;display:inline-block;margin-right:5px;"></i>
+        <b>Azul</b>: Provincias de origen<br>
+      &nbsp;&nbsp;Más oscuro → más desplazamientos<br>
+      <i style="background:#66f26a;width:12px;height:12px;display:inline-block;margin-right:5px;"></i>
+        <b>Verde</b>: Provincia destino
+    </div>
+    """
+
+    html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"/>
-<title>{ciudad_1} vs {ciudad_2}</title>
+<title>Comparación {ciudad_1} vs {ciudad_2}</title>
 <style>
  html,body{{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}}
  #ctl{{position:fixed;top:10px;left:50%;transform:translateX(-50%);
@@ -623,6 +651,7 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
  <div class="cell"><img id="L" src="data:image/png;base64,{L[str(s_min)]}"></div>
  <div class="cell"><img id="R" src="data:image/png;base64,{R[str(s_min)]}"></div>
 </div>
+{legend_html}
 <script>
 const Limg=document.getElementById('L'),
       Rimg=document.getElementById('R'),
@@ -631,7 +660,8 @@ const Limg=document.getElementById('L'),
 function chg(v){{lbl.textContent=v;Limg.src='data:image/png;base64,'+L[v];
                  Rimg.src='data:image/png;base64,'+R[v];}}
 </script></body></html>"""
-    out.write_text(html,encoding="utf-8")
+
+    out.write_text(html, encoding="utf-8")
     yield 100
     yield out
 
