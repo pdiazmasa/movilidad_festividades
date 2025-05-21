@@ -395,119 +395,97 @@ chg({min_d});
 def exportar_mapa_con_imagenes_mes(ciudad, mes,
                                    sensibilidad_color=3, zoom=7):
     """
-    Genera un HTML con una imagen PNG (1920×1080) por cada día disponible
-    en el mes indicado. Incluye un slider para cambiar de día.
-    Funciona como generator: emite progreso basado en los mapas ya capturados
-    y, al final, devuelve la ruta al HTML abierto en el navegador.
+    Genera un HTML con una imagen PNG (1920×1080) por cada día del mes.
+    Incluye un slider y, al final, devuelve la ruta del HTML para que
+    Streamlit ofrezca el botón de descarga.
     """
+
     transporte_file = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
-    output_html     = RESULTADOS_DIR / f"imagenes_{ciudad}_{int(mes)}.html"
+    output_html     = RESULTADOS_DIR / f"imagenes_{ciudad}_{int(mes):02}.html"
 
-    # 0%: inicio
+    # 0 % ── comprobaciones básicas
     yield 0
-
     if not transporte_file.exists():
         raise FileNotFoundError(f"No se encontró {transporte_file}")
 
-    df = pd.read_excel(transporte_file)
-    if "dia" not in df.columns:
-        raise ValueError("El Excel no contiene la columna 'dia'")
-
-    dias = sorted(df["dia"].dropna().unique())
+    df      = pd.read_excel(transporte_file)
+    dias    = sorted(df["dia"].dropna().unique())
     if not dias:
         raise ValueError("No hay días disponibles en el archivo")
 
     total = len(dias)
-    # 5%: datos listos
-    yield 5
+    yield 5   # datos listos
 
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--window-size=1920,1080")
-    driver = webdriver.Chrome(options=chrome_options)
+    # ── Selenium headless para las capturas PNG ───────────────────────────
+    opts = Options()
+    opts.add_argument("--headless")
+    opts.add_argument("--window-size=1920,1080")
+    driver = webdriver.Chrome(options=opts)
 
-    imagenes = {}
+    imagenes_b64 = {}
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
 
         for idx, dia in enumerate(dias, start=1):
-            # Consumir el generator para obtener la ruta del HTML
-            gen_map = graficaTransportesDia(
-                ciudad, dia, mes, sensibilidad_color, zoom,
-                open_browser=False
-            )
-            mapa_path = None
-            for mapa_path in gen_map:
-                pass
+            # generar el mapa Folium (nuevo API sin open_browser)
+            gen = graficaTransportesDia(ciudad, dia, mes,
+                                        sensibilidad_color, zoom)
+            mapa = None
+            for chunk in gen:
+                if not isinstance(chunk, int):
+                    mapa = chunk
 
-            # Capturar screenshot
-            driver.get(mapa_path.as_uri())
+            # guardar HTML temporal del mapa
+            tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
+            tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
+
+            # capturar screenshot PNG
+            driver.get(tmp_html.as_uri())
             time.sleep(2.5)
             png_path = tmpdir / f"{ciudad}_{mes}_{dia}.png"
             driver.save_screenshot(str(png_path))
 
-            # Leer y codificar
-            with open(png_path, "rb") as imgf:
-                img_b64 = base64.b64encode(imgf.read()).decode("utf-8")
-            imagenes[dia] = img_b64
+            # codificar a Base-64 para incrustarlo en el HTML final
+            imagenes_b64[dia] = base64.b64encode(
+                png_path.read_bytes()
+            ).decode("utf-8")
 
-            # Progreso proporcional
-            progreso = int(idx / total * 100)
-            yield progreso
+            # progreso proporcional (5 % → 95 %)
+            yield 5 + int(idx / total * 90)
 
     driver.quit()
 
-    # Construir HTML con slider
-    min_dia, max_dia = min(dias), max(dias)
-    imagenes_json = json.dumps({str(k): v for k, v in imagenes.items()})
+    # ── Construir HTML con slider ─────────────────────────────────────────
+    min_d, max_d = min(dias), max(dias)
+    imgs_json    = json.dumps({str(k): v for k, v in imagenes_b64.items()})
 
-    html_output = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
+    html_final = f"""<!DOCTYPE html>
+<html lang="es"><head>
 <meta charset="utf-8"/>
 <title>Mapas – {ciudad.capitalize()} {mes}</title>
 <style>
-  body {{ margin:0; padding:0; font-family:sans-serif; text-align:center; }}
-  #slider-container {{
-    position:absolute; top:20px; right:20px; background:white;
-    padding:10px; border-radius:8px; z-index:9999;
-    box-shadow:0 0 10px rgba(0,0,0,0.2);
-  }}
-  #map-img {{ width:100%; max-width:1920px; height:auto; }}
-</style>
-</head>
-<body>
-  <div id="slider-container">
-    Día:
-    <input type="range" id="diaSlider" min="{min_dia}" max="{max_dia}" value="{min_dia}"
-           oninput="updateImage(this.value)">
-    <span id="diaLabel">{min_dia}</span>
-  </div>
-  <div>
-    <img id="map-img" src="data:image/png;base64,{imagenes[min_dia]}" alt="Mapa"/>
-  </div>
+ body{{margin:0;font-family:sans-serif;text-align:center}}
+ #ctl{{position:absolute;top:20px;right:20px;background:#fff;padding:10px;
+      border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,.2);z-index:9999}}
+ #map-img{{width:100%;max-width:1920px;height:auto}}
+</style></head><body>
+<div id="ctl">
+  Día:
+  <input type="range" id="slider" min="{min_d}" max="{max_d}" value="{min_d}"
+         oninput="chg(this.value)">
+  <span id="lbl">{min_d}</span>
+</div>
+<img id="map-img" src="data:image/png;base64,{imagenes_b64[min_d]}" alt="Mapa"/>
 <script>
-  var imagenes = {imagenes_json};
-  function updateImage(dia) {{
-      document.getElementById('diaLabel').textContent = dia;
-      var img = imagenes[String(dia)];
-      if (img) document.getElementById('map-img').src = "data:image/png;base64," + img;
-  }}
-</script>
-</body>
-</html>
-"""
+const imgs={imgs_json};
+function chg(v){{document.getElementById('lbl').textContent=v;
+  document.getElementById('map-img').src='data:image/png;base64,'+imgs[v];}}
+</script></body></html>"""
 
-    # Guardar HTML final
-    with open(output_html, "w", encoding="utf-8") as f:
-        f.write(html_output)
+    output_html.write_text(html_final, encoding="utf-8")
+    yield 100           # progreso final
+    yield output_html   # devuelve la ruta al HTML
 
-    # 100%: terminado
-    yield 100
-
-    # Abrir en navegador y devolver ruta
-    webbrowser.open_new_tab(output_html.as_uri())
-    yield output_html
 
 
 # In[85]:
