@@ -814,6 +814,13 @@ def mapa_transportes_relativo(ciudad, dia, mes, sensibilidad=3, open_browser=Tru
 # In[121]:
 
 
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+import base64, json, time
+from tempfile import TemporaryDirectory
+import imageio
+import webbrowser
+
 def exportar_mapa_gif(
     ciudad,
     mes,
@@ -825,76 +832,72 @@ def exportar_mapa_gif(
 ):
     """
     Genera un GIF animado con capturas diarias del mes indicado.
-    Funciona como generator: emite progreso basado en las capturas,
-    y finalmente devuelve la ruta al archivo abierto en el navegador.
+    Funciona como generator: emite progreso (0–100) y al final devuelve
+    la ruta al .gif o al HTML que lo envuelve.
     """
-
     excel_path = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
     gif_path   = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.gif"
 
     # 0%: inicio
     yield 0
-
     if not excel_path.exists():
         raise FileNotFoundError(f"No se encontró {excel_path}")
-
     df = pd.read_excel(excel_path)
     if "dia" not in df.columns:
         raise ValueError("El Excel no contiene la columna 'dia'")
-
     dias = sorted(df["dia"].dropna().unique())
     if not dias:
         raise ValueError("No hay días válidos en el archivo")
 
     total = len(dias)
-    # 5%: datos cargados
+    # 5%: datos validados
     yield 5
 
     # ── Selenium headless ───────────────────────────────────────────
     opts = Options()
-    opts.add_argument("--headless")
-    opts.add_argument("--window-size=2560,1440")
-    driver = webdriver.Chrome(options=opts)
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--window-size=1920,1080")
+    service = Service("/usr/bin/chromedriver")
+    driver  = webdriver.Chrome(service=service, options=opts)
     # 10%: Selenium listo
     yield 10
 
+    png_files = []
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
-        png_files = []
 
-        # capturar todos los PNG
         for idx, dia in enumerate(dias, start=1):
-            # generar mapa (generator) y extraer ruta
-            gen = graficaTransportesDia(
-                ciudad, dia, mes, sensibilidad_color, zoom,
-                open_browser=False
-            )
-            mapa_path = None
-            for mapa_path in gen:
-                pass
+            # 1) Generar el mapa con el generator
+            mapa = None
+            for chunk in graficaTransportesDia(ciudad, dia, mes, sensibilidad_color, zoom):
+                if not isinstance(chunk, int):
+                    mapa = chunk
 
-            driver.get(mapa_path.as_uri())
-            time.sleep(2)
+            # 2) Guardar el HTML temporal
+            tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
+            tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
+
+            # 3) Captura de pantalla
+            driver.get(tmp_html.as_uri())
+            time.sleep(2)  # espera a que carguen los tiles
             png_tmp = tmpdir / f"{ciudad}_{mes}_{dia}.png"
             driver.save_screenshot(str(png_tmp))
             png_files.append(png_tmp)
 
-            # progreso proporcional (10→90%)
-            progreso = 10 + int(idx / total * 80)
-            yield progreso
+            # 4) Reportar progreso (10→90%)
+            yield 10 + int(idx / total * 80)
 
-        # ya no necesitamos Selenium
-        driver.quit()
+    driver.quit()
 
-        # ── Crear GIF dentro del mismo tmpdir ────────────────────────
-        fps = 1 / duracion_segundos
-        with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
-            for png in png_files:
-                writer.append_data(imageio.imread(png))
-        # 95%: GIF creado
-        yield 95
-
-    # fuera del with TemporaryDirectory los PNG ya han sido borrados, pero el GIF está hecho
+    # ── Crear el GIF ────────────────────────────────────────────────
+    fps = 1 / duracion_segundos
+    with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
+        for png in png_files:
+            writer.append_data(imageio.imread(png))
+    # 95%: GIF creado
+    yield 95
 
     # ── (Opcional) envolver en HTML ─────────────────────────────────
     if html_wrapper:
@@ -924,8 +927,9 @@ def exportar_mapa_gif(
     if open_browser:
         webbrowser.open_new_tab(target.as_uri())
 
-    # 100%: finalizado, devolver ruta
+    # 100%: terminado, devolver ruta
     yield target
+
 
 
 # In[ ]:
