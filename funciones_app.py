@@ -537,10 +537,14 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     yield 15  # datos cargados y filtrados
 
     # ── Configurar Selenium headless ──────────────────────────────────
-    chrome_opts = Options()
-    chrome_opts.add_argument("--headless")
-    chrome_opts.add_argument("--window-size=1920,1080")
-    driver = webdriver.Chrome(options=chrome_opts)
+    opts = Options()
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--window-size=1920,1080")         # antes 1920×1080
+    opts.add_argument("--force-device-scale-factor=2")   # Hi-DPI 2×
+    service = Service("/usr/bin/chromedriver")
+    driver  = webdriver.Chrome(service=service, options=opts)
     yield 20  # Selenium listo
 
     img_left, img_right = {}, {}
@@ -838,7 +842,7 @@ def exportar_mapa_gif(
     # ── Selenium headless ───────────────────────────────────────────
     opts = Options()
     opts.add_argument("--headless")
-    opts.add_argument("--window-size=1920,1080")
+    opts.add_argument("--window-size=2560,1440")
     driver = webdriver.Chrome(options=opts)
     # 10%: Selenium listo
     yield 10
