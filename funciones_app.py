@@ -814,35 +814,28 @@ def mapa_transportes_relativo(ciudad, dia, mes, sensibilidad=3, open_browser=Tru
 # In[121]:
 
 
-import pandas as pd
-import geopandas as gpd
-import matplotlib.pyplot as plt
-import imageio
-import webbrowser
-import time
-from pathlib import Path
-from tempfile import TemporaryDirectory
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+import imageio.v2 as imageio
 
 def exportar_mapa_gif(
     ciudad,
     mes,
-    sensibilidad_color=10,
+    sensibilidad_color=3,
     zoom=6,
     duracion_segundos=0.1,
     open_browser=True,
     html_wrapper=True,
 ):
     """
-    Genera un GIF animado de la evolución diaria:
-    - Usa GeoPandas + Matplotlib para cada PNG 960×1080 px @100dpi.
-    - Monta el GIF con imageio directamente.
-    - Opcionalmente envuelve en un HTML.
-    Progreso: 0–100. Devuelve Path al .gif o al HTML que lo envuelve.
+    Genera un GIF animado tomando screenshots de los mapas Folium diarios:
+      - Captura con Selenium en 1920×1080 CSS px a escala 2× para alta resolución.
+      - Usa graficaTransportesDia con leyenda a la izquierda.
+      - Junta todas las PNG en un GIF.
+      - Opcionalmente envuelve el GIF en un HTML.
+    Progreso: 0–100; devuelve Path al .gif o al HTML que lo envuelve.
     """
     excel_path = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
-    gif_path   = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.gif"
-
-    yield 0
     if not excel_path.exists():
         raise FileNotFoundError(excel_path)
     df = pd.read_excel(excel_path)
@@ -850,83 +843,77 @@ def exportar_mapa_gif(
         raise ValueError("El Excel no contiene la columna 'dia'")
     dias = sorted(df["dia"].dropna().unique())
     if not dias:
-        raise ValueError("No hay días disponibles")
+        raise ValueError("No hay días disponibles en el Excel")
     total = len(dias)
-    yield 5
+    yield 0
 
-    # precarga geojson
-    geojson = DATOS_DIR / "georef-spain-provincia.geojson"
-    gdf_provincias = gpd.read_file(geojson)
-    yield 10
+    # preparar rutas
+    gif_path = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.gif"
+
+    # Selenium headless hi-DPI 1920×1080 CSS @2×
+    opts = Options()
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--window-size=1920,1080")
+    opts.add_argument("--force-device-scale-factor=2")
+    driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=opts)
 
     png_files = []
+    yield 5
+
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
         for idx, dia in enumerate(dias, start=1):
-            # filtrar y agregar viajes
-            df_dia = df[df["dia"] == dia]
-            df_agg = (
-                df_dia.groupby("provincia origen", as_index=False)["viajes"].sum()
-                      .assign(prov_std=lambda d: d["provincia origen"]
-                                                 .apply(standardize_province_name))
-            )
-            best = detectar_campo_provincia(gdf_provincias, df_agg)
-            gdf = gdf_provincias.copy()
-            gdf["prov_std"] = gdf[best].astype(str).apply(standardize_province_name)
-            gdfm = gdf.merge(df_agg[["prov_std","viajes"]], on="prov_std", how="left")
-            gdfm["viajes"] = gdfm["viajes"].fillna(0)
-            max_v = gdfm["viajes"].max() or 1
+            # 1) Generar el folium.Map con leyenda a la izquierda
+            mapa = None
+            for chunk in graficaTransportesDia(ciudad, dia, mes,
+                                               sensibilidad_color, zoom,
+                                               dpi_scale=1.0,
+                                               legend_side="left"):
+                if not isinstance(chunk, int):
+                    mapa = chunk
 
-            # preparar colores
-            colors = [ get_fill_color(v, max_v, sensibilidad_color)
-                       for v in gdfm["viajes"] ]
+            # 2) Guardar HTML temporal y capturar PNG
+            tmp_html = tmpdir / f"{ciudad}_{mes:02d}_{dia:02d}.html"
+            tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
+            driver.get(tmp_html.as_uri())
+            time.sleep(2.5)  # dejar cargar tiles + CSS
+            tmp_png = tmpdir / f"{ciudad}_{mes:02d}_{dia:02d}.png"
+            driver.save_screenshot(str(tmp_png))
+            png_files.append(str(tmp_png))
 
-            # dibujar
-            fig, ax = plt.subplots(figsize=(9.6,10.8), dpi=100)
-            gdfm.plot(color=colors, edgecolor="blue", linewidth=0.5, ax=ax)
-            ax.axis("off")
-            ax.set_title(f"{ciudad.capitalize()} – Día {dia}", fontsize=14,
-                         pad=12, backgroundcolor="white")
+            # progreso 5→85
+            yield 5 + int(idx / total * 80)
 
-            # leyenda
-            ley = fig.add_axes([0.02,0.02,0.25,0.12])
-            ley.axis("off")
-            ley.text(0,1,"🗺️ Leyenda", fontsize=12, weight="bold")
-            ley.text(0,0.6,
-                     "■ Azul: Origen\n"
-                     "■ Oscuro→ más viajes\n"
-                     "■ Verde: Destino",
-                     fontsize=10)
+    driver.quit()
+    yield 90
 
-            # guardar PNG
-            png_path = tmpdir / f"{ciudad}_{dia}.png"
-            fig.savefig(png_path, bbox_inches="tight")
-            plt.close(fig)
-            png_files.append(png_path)
-
-            yield 10 + int(idx/total*80)
-
-        # crear GIF
-        fps = 1 / duracion_segundos
-        with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
-            for p in png_files:
-                writer.append_data(imageio.imread(str(p)))
-        yield 90
-
+    # 3) Montar GIF
+    fps = 1 / duracion_segundos
+    with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
+        for png in png_files:
+            writer.append_data(imageio.imread(png))
     yield 95
-    # HTML wrapper opcional
+
+    # 4) Opcional: envolver en HTML
     if html_wrapper:
         html_file = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.html"
         html_code = f"""<!DOCTYPE html>
-<html lang="es"><meta charset="utf-8">
+<html lang="es">
+<head><meta charset="utf-8"/>
 <title>GIF – {ciudad.capitalize()} {mes}</title>
-<style>body{{margin:0;display:flex;justify-content:center;
-             align-items:center;height:100vh;background:#000}}
-       img{{max-width:100%;height:auto}}</style>
+<style>
+  body {{ margin:0; display:flex; justify-content:center; align-items:center;
+         height:100vh; background:#000; }}
+  img  {{ max-width:100%; height:auto; }}
+</style>
+</head>
 <body>
-  <img src="{gif_path.name}" alt="GIF">
-</body></html>"""
-        html_file.write_text(html_code,encoding="utf-8")
+  <img src="{gif_path.name}" alt="GIF de {ciudad} mes {mes}">
+</body>
+</html>"""
+        html_file.write_text(html_code, encoding="utf-8")
         target = html_file
     else:
         target = gif_path
