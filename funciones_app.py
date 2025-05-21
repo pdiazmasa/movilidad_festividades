@@ -814,13 +814,14 @@ def mapa_transportes_relativo(ciudad, dia, mes, sensibilidad=3, open_browser=Tru
 # In[121]:
 
 
-import matplotlib.pyplot as plt
-import imageio
-import pandas as pd
-import geopandas as gpd
-from pathlib import Path
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from tempfile import TemporaryDirectory
-import base64, json, time, webbrowser
+import imageio
+import webbrowser
+import pandas as pd
+import time
+import os
 
 def exportar_mapa_gif(
     ciudad,
@@ -832,133 +833,95 @@ def exportar_mapa_gif(
     html_wrapper=True,
 ):
     """
-    Genera un GIF animado de la evolución diaria:
-    - Usa GeoPandas + Matplotlib para cada PNG 960×1080 px a 100 dpi.
-    - Monta el GIF con imageio.
-    - Opcionalmente envuelve en un HTML.
-    Progreso: 0–100. Devuelve Path al GIF (o al HTML).
+    Genera un GIF animado con capturas diarias del mes indicado.
+    Progreso: 0–100. Devuelve Path al .gif o al HTML que lo envuelve.
     """
-    # 0% – comprobar Excel
     excel_path = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
     gif_path   = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.gif"
+
+    # 0%: comprobar fichero
     yield 0
     if not excel_path.exists():
-        raise FileNotFoundError(excel_path)
+        raise FileNotFoundError(f"No se encontró {excel_path}")
     df = pd.read_excel(excel_path)
     if "dia" not in df.columns:
         raise ValueError("El Excel no contiene la columna 'dia'")
     dias = sorted(df["dia"].dropna().unique())
     if not dias:
         raise ValueError("No hay días disponibles")
-    yield 5
+    total = len(dias)
+    yield 5  # datos OK
 
-    # 5% – cargar georef globalmente
-    geojson = DATOS_DIR / "georef-spain-provincia.geojson"
-    gdf_provincias = gpd.read_file(geojson)
+    # 5→10%: arrancar Selenium
+    opts = Options()
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--window-size=1920,1080")
+    driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=opts)
     yield 10
 
     png_files = []
-    total = len(dias)
-    # ── generar cada fotograma ───────────────────────────────────────
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
         for idx, dia in enumerate(dias, start=1):
-            # filtrar y agregar viajes
-            df_dia = df[df["dia"] == dia]
-            df_agg = (
-                df_dia.groupby("provincia origen", as_index=False)["viajes"].sum()
-                      .assign(prov_std=lambda d: d["provincia origen"]
-                                                 .apply(standardize_province_name))
-            )
-            # detectar campo y merge
-            best = detectar_campo_provincia(gdf_provincias, df_agg)
-            gdf = gdf_provincias.copy()
-            gdf["prov_std"] = gdf[best].astype(str).apply(standardize_province_name)
-            gdfm = gdf.merge(df_agg[["prov_std","viajes"]], on="prov_std", how="left")
-            gdfm["viajes"] = gdfm["viajes"].fillna(0)
-            max_v = gdfm["viajes"].max() or 1
+            # 1) Generar el mapa
+            mapa = None
+            for chunk in graficaTransportesDia(ciudad, dia, mes, sensibilidad_color, zoom):
+                if not isinstance(chunk, int):
+                    mapa = chunk
 
-            # colorear
-            colors = [
-                get_fill_color(v, max_v, sensibilidad_color)
-                for v in gdfm["viajes"]
-            ]
+            # 2) Guardar HTML temporal
+            tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
+            tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
 
-            # ── Dibujar con Matplotlib ───────────────────────────
-            fig, ax = plt.subplots(
-                figsize=(9.6, 10.8),  # 960×1080 px @100 dpi
-                dpi=100,
-            )
-            gdfm.plot(
-                color=colors,
-                edgecolor="blue",
-                linewidth=0.5,
-                ax=ax,
-                zorder=1
-            )
-            ax.axis("off")
+            # 3) Captura PNG
+            driver.get(tmp_html.as_uri())
+            time.sleep(2)
+            png_tmp = tmpdir / f"{ciudad}_{mes}_{dia}.png"
+            driver.save_screenshot(str(png_tmp))
 
-            # título overlay
-            ax.text(
-                0.5, 0.98,
-                f"{ciudad.capitalize()} – Día {dia} – Sensib. {sensibilidad_color}",
-                ha="center", va="top",
-                transform=ax.transAxes,
-                fontsize=14,
-                backgroundcolor="white",
-                zorder=2
-            )
+            # --- DEBUG: tamaño del PNG ---
+            size = os.path.getsize(png_tmp)
+            print(f"[GIF] Día {dia}: {png_tmp} → {size} bytes")
 
-            # leyenda estática
-            legend_ax = fig.add_axes([0.01, 0.01, 0.25, 0.12])
-            legend_ax.axis("off")
-            legend_ax.text(0, 1, "🗺️ Leyenda", fontsize=12, weight="bold")
-            legend_ax.text(
-                0, 0.8,
-                "■  Azul: Provincias de origen\n"
-                "■  Más oscuro → más desplazamientos\n"
-                "■  Verde: Provincia destino",
-                fontsize=10
-            )
-
-            # guardar PNG
-            png_path = tmpdir / f"{ciudad}_{dia}.png"
-            fig.savefig(png_path, dpi=100, bbox_inches="tight")
-            plt.close(fig)
-            png_files.append(png_path)
-
-            # progreso
+            png_files.append(png_tmp)
             yield 10 + int(idx / total * 80)
 
-        # ── Montar GIF antes de salir de tmpdir ───────────────────
+        # 4) Crear GIF antes de borrar tmp
         fps = 1 / duracion_segundos
-        with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
+        with imageio.get_writer(str(gif_path), mode="I", fps=fps, loop=0) as writer:
             for png in png_files:
-                writer.append_data(imageio.imread(png))
-        yield 90
+                # leer como cadena
+                img = imageio.imread(str(png))
+                writer.append_data(img)
+        yield 90  # GIF creado
 
-    yield 95
-    # ── Opcional: HTML wrapper ────────────────────────────────
+    driver.quit()
+
+    # 5) Opcional: envolver en HTML
     if html_wrapper:
         html_path = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.html"
         html_code = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"/>
 <title>GIF – {ciudad.capitalize()} {mes}</title>
-<style>body{{margin:0;display:flex;justify-content:center;align-items:center;
-             height:100vh;background:#000}}img{{max-width:100%;height:auto}}</style>
+<style>body{{margin:0;display:flex;justify-content:center;
+             align-items:center;height:100vh;background:#000}}
+       img{{max-width:100%;height:auto}}</style>
 </head><body>
-  <img src="{gif_path.name}" alt="GIF de Movilidad">
+  <img src="{gif_path.name}" alt="Mapa GIF">
 </body></html>"""
         html_path.write_text(html_code, encoding="utf-8")
         target = html_path
     else:
         target = gif_path
 
-    # 95→100%: abrir y devolver
     if open_browser:
         webbrowser.open_new_tab(target.as_uri())
+
     yield 100
     yield target
+
 
 
 
