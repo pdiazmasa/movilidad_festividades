@@ -300,7 +300,6 @@ def graficaTransportesDia(
 
 
 
-
 # In[97]:
 
 
