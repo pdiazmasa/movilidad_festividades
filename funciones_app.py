@@ -311,9 +311,11 @@ def graficaTransportesDia(ciudad, dia, mes, sensibilidad_color=3, zoom=6):
 
 def exportar_mapa_interactivo_mes(ciudad, mes, sensibilidad_color=3):
     """
-    Genera un único archivo HTML con todos los mapas de un mes precargados,
-    controlados por un slider. Funciona como generator: emite progreso y
-    al final devuelve la ruta al HTML (y lo abre en el navegador).
+    Devuelve un único HTML con un slider para navegar por los días del mes.
+    Progreso: 0-100; al final, ruta del HTML combinando todos los mapas.
+
+    La nueva versión usa graficaTransportesDia() sin open_browser
+    y sin escribir mapas temporales en disco.
     """
     transporte_file = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
     output_html     = RESULTADOS_DIR / f"interactivo_{ciudad}_{int(mes):02}.html"
@@ -321,100 +323,69 @@ def exportar_mapa_interactivo_mes(ciudad, mes, sensibilidad_color=3):
     if not transporte_file.exists():
         raise FileNotFoundError(f"No se encontró {transporte_file}")
 
+    # ---------- leer días disponibles ----------
     df = pd.read_excel(transporte_file)
-    if "dia" not in df.columns:
-        raise ValueError("El Excel no contiene la columna 'dia'")
-
     dias = sorted(df["dia"].dropna().unique())
     if not dias:
         raise ValueError("No hay días disponibles en el archivo")
 
     total = len(dias)
-    yield 0  # inicio
+    yield 0      # inicio
+    yield 5      # días leídos
 
+    # ---------- generar mapas y recoger HTML ----------
     mapas_html = {}
-    yield 5  # datos validados
-
-    # 1) Generar cada mapa diario y almacenar su HTML
     for idx, dia in enumerate(dias, start=1):
-        # Consumir el generator de graficaTransportesDia hasta obtener la ruta
-        gen = graficaTransportesDia(ciudad, dia, mes, sensibilidad_color,
-                                    zoom=6, open_browser=False)
-        html_path = None
-        for value in gen:
-            html_path = value
-        # Leer el HTML generado
-        with open(html_path, "r", encoding="utf-8") as f:
-            mapas_html[dia] = f.read()
+        # consumir el generador hasta obtener el mapa final
+        gen = graficaTransportesDia(ciudad, dia, mes, sensibilidad_color, zoom=6)
+        mapa = None
+        for chunk in gen:
+            if not isinstance(chunk, int):
+                mapa = chunk
 
-        # Reportar progreso de 5→95%
-        pct = 5 + int(idx / total * 90)
-        yield pct
+        # renderizar el folium.Map a string HTML
+        mapas_html[dia] = mapa.get_root().render()
 
-    # 2) Montar el HTML combinado con slider
-    min_dia, max_dia = dias[0], dias[-1]
-    html_output = f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="utf-8"/>
-    <title>Mapas de Transporte – {ciudad.capitalize()} {mes}</title>
-    <style>
-      body {{ margin:0; padding:0; font-family:sans-serif; }}
-      #slider-container {{
-          position: fixed; top: 20px; right: 20px;
-          background: white; padding: 10px; border-radius: 8px;
-          z-index: 9999; box-shadow: 0 0 10px rgba(0,0,0,0.2);
-      }}
-      iframe.map-frame {{
-          position:absolute; top:0; left:0;
-          width:100%; height:100vh; border:none;
-          display:none;
-      }}
-    </style>
-</head>
-<body>
+        yield 5 + int(idx / total * 85)   # progreso 5-90 %
 
-<div id="slider-container">
-  Día:
-  <input type="range" id="diaSlider"
-         min="{min_dia}" max="{max_dia}" value="{min_dia}"
-         oninput="updateMap(this.value)">
-  <span id="diaLabel">{min_dia}</span>
+    # ---------- ensamblar HTML con slider ----------
+    min_d, max_d = dias[0], dias[-1]
+    html_out = [f"""<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<title>Interactivo {ciudad} {mes}</title>
+<style>
+  body {{margin:0}} iframe.map {{position:absolute;top:0;left:0;width:100%;height:100vh;border:none;display:none}}
+  #ctl {{position:fixed;top:20px;right:20px;background:#fff;padding:10px;border:2px solid grey;border-radius:8px;z-index:9999}}
+</style>
+</head><body>
+<div id="ctl">
+  Día: <input type="range" id="slider" min="{min_d}" max="{max_d}"
+              value="{min_d}" oninput="chg(this.value)">
+  <span id="lbl">{min_d}</span>
 </div>
-"""
+"""]
 
-    # Insertar un iframe por día (todos ocultos al inicio)
     for dia, html in mapas_html.items():
         esc = html.replace('"', "&quot;")
-        html_output += f'\n<iframe id="map_{dia}" class="map-frame" srcdoc="{esc}"></iframe>'
+        html_out.append(f'<iframe id="d{dia}" class="map" srcdoc="{esc}"></iframe>')
 
-    # JavaScript para controlar el slider
-    html_output += f"""
+    # script para el slider
+    html_out.append(f"""
 <script>
-function updateMap(dia) {{
-  document.getElementById('diaLabel').textContent = dia;
-  document.querySelectorAll('iframe.map-frame').forEach(f => f.style.display = 'none');
-  var frame = document.getElementById('map_' + dia);
-  if (frame) frame.style.display = 'block';
+function chg(v) {{
+  document.getElementById('lbl').textContent=v;
+  document.querySelectorAll('iframe.map').forEach(f=>f.style.display='none');
+  var fr=document.getElementById('d'+v); if(fr) fr.style.display='block';
 }}
-// Mostrar el primer día
-updateMap({min_dia});
+chg({min_d});
 </script>
+</body></html>""")
 
-</body>
-</html>
-"""
+    output_html.write_text("".join(html_out), encoding="utf-8")
+    yield 95  # ensamblado listo
 
-    # 95%: HTML preparado
-    yield 95
-
-    # Guardar y abrir
-    with open(output_html, "w", encoding="utf-8") as f:
-        f.write(html_output)
-
-    webbrowser.open_new_tab(output_html.as_uri())
-
-    # 100%: terminado, devolver ruta
+    # devolver ruta y 100 %
     yield output_html
 
 
