@@ -11,3 +11,4 @@ ipywidgets
 widgetsnbextension
 pyogrio
 openpyxl
+streamlit-folium
