@@ -182,16 +182,14 @@ def detectar_campo_provincia(gdf, df_transport):
 # In[79]:
 
 
-def graficaTransportesDia(ciudad, dia, mes, sensibilidad_color=3, zoom=6, open_browser=True):
+def graficaTransportesDia(ciudad, dia, mes, sensibilidad_color=3, zoom=6):
     """
-    Genera un mapa Folium, lo guarda como HTML en RESULTADOS_DIR,
-    abre el archivo en el navegador y devuelve la ruta al HTML.
-    Funciona como generator: emite porcentajes de progreso y al final la ruta.
+    Genera un mapa Folium y lo devuelve como objeto para mostrar en Streamlit.
+    Funciona como generator: emite porcentajes de progreso y al final devuelve el mapa.
     """
 
     mes = int(mes)
     transporte_file = DATOS_DIR / f"{ciudad.lower()}-{mes:02}.xlsx"
-    html_path       = RESULTADOS_DIR / f"mapa_{ciudad}_{mes:02d}_{dia:02d}.html"
     georef_file     = DATOS_DIR / "georef-spain-provincia.geojson"
 
     # 0%: inicio
@@ -303,13 +301,9 @@ def graficaTransportesDia(ciudad, dia, mes, sensibilidad_color=3, zoom=6, open_b
     # 90%: geojson y leyenda añadidos
     yield 90
 
-    # Guardar y abrir
-    mapa.save(html_path)
-    if open_browser:
-        webbrowser.open_new_tab(html_path.as_uri())
+    # 100%: en lugar de guardar o abrir, devolvemos el mapa
+    yield mapa
 
-    # 100%: final
-    yield html_path
 
 
 # In[97]:
