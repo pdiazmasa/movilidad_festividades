@@ -12,16 +12,20 @@ import sys
 import subprocess
 import mimetypes
 from pathlib import Path
+
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_folium import st_folium
+
 from funciones_app import (
     graficaTransportesDia,
     exportar_mapa_interactivo_mes,
     exportar_mapa_con_imagenes_mes,
     comparar_mapas,
     mapa_transportes_relativo,
-    exportar_mapa_gif)
+    exportar_mapa_gif,
+)
+
 
 # -------- Soporte PyInstaller (ignorado en Cloud) --------
 if getattr(sys, "frozen", False):
