@@ -68,16 +68,14 @@ descs = {
 st.header(titles[op])
 st.markdown(descs[op])
 
-def show_progress(gen):
-    prog = st.progress(0)
-    ruta = None
-    for x in gen:
-        if isinstance(x, (int, float)):
-            prog.progress(int(x))
+def show_progress(generator):
+    resultado = None
+    for progreso in generator:
+        if isinstance(progreso, int):
+            st.progress(progreso)
         else:
-            ruta = x
-    prog.empty()
-    return ruta
+            resultado = progreso
+    return resultado
 
 if op == "🗓️ Mapa interactivo de un día":
     c = st.text_input("Provincia")
@@ -86,8 +84,9 @@ if op == "🗓️ Mapa interactivo de un día":
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     z = st.number_input("Zoom", 4, 10, 6)
     if st.button("Generar"):
-        ruta = show_progress(graficaTransportesDia(c, d, m, s, z))
-        st.success(f"Mapa generado: {ruta}")
+        from streamlit_folium import st_folium
+        mapa = show_progress(graficaTransportesDia(c, d, m, s, z))
+        st_folium(mapa, width=700, height=500)
 
 elif op == "📅 Mapa Interactivo de un mes":
     c = st.text_input("Provincia")
