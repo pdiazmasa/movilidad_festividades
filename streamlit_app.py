@@ -223,9 +223,3 @@ elif op == opciones[5]:
     if st.button("Generar"):
         ruta = show_progress(exportar_mapa_gif(c, m_, s, z, secs, open_browser=True))
         st.success(f"GIF generado: {ruta}")
-    
-    c = st.text_input("Provincia")
-    m_ = st.number_input("Mes", 1, 12, 1)
-    s = st.number_input("Sensibilidad color", 1, 10, 3)
-    z = st.number_input("Zoom", 4, 10, 6)
-    secs = st.number_input("Segundos por frame", 0.05, 2.0, 0.
