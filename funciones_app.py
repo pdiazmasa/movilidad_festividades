@@ -539,7 +539,7 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     # parámetros de captura
     CSS_W, CSS_H = 960, 1080     # cada mitad
     DEV_SCALE    = 2             # Hi-DPI
-    dpi_scale    = 0.25          # overlays pequeños
+    dpi_scale    = 0.75          # overlays pequeños
 
     opts = Options()
     opts.add_argument("--headless=new")
