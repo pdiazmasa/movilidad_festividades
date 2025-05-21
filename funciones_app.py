@@ -422,9 +422,11 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--window-size=2560,1440")          # lienzo grande
-    opts.add_argument("--force-device-scale-factor=2")    # Hi-DPI 2×
-    service = Service("/usr/bin/chromedriver")
+    # la ventana será 2560×1440 CSS px  → 5120×2880 píxeles reales (2×)
+    opts.add_argument("--window-size=2560,1440")
+    opts.add_argument("--force-device-scale-factor=2")
+
+    service = Service("/usr/bin/chromedriver")   # instalado vía packages.txt
     driver  = webdriver.Chrome(service=service, options=opts)
 
     imgs_b64 = {}
