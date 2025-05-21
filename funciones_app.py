@@ -390,38 +390,43 @@ from selenium.webdriver.chrome.options import Options
 import base64, json, time
 from tempfile import TemporaryDirectory
 
-
 def exportar_mapa_con_imagenes_mes(ciudad, mes,
-                                   sensibilidad_color=3, zoom=7):
+                                   sensibilidad_color: int = 3,
+                                   zoom: int = 7):
     """
-    Genera un HTML con una imagen PNG de alta resolución (2560×1440, escala 2×)
-    por cada día disponible y un slider para alternar. Devuelve la ruta del
-    HTML final.  Progreso emitido: 0-100.
+    Genera un HTML con una imagen PNG Hi-DPI por cada día disponible
+    y un slider para alternar. Devuelve la ruta del HTML final.
+    Progreso emitido: 0-100.
     """
+
     xls = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
     out = RESULTADOS_DIR / f"imagenes_{ciudad}_{int(mes):02}.html"
 
-    # ── 0 %: comprobaciones ─────────────────────────────────────────────
+    # ── 0 % : comprobaciones ────────────────────────────────────────────
     yield 0
     if not xls.exists():
         raise FileNotFoundError(xls)
-    df = pd.read_excel(xls)
+    df   = pd.read_excel(xls)
     dias = sorted(df["dia"].dropna().unique())
     if not dias:
         raise ValueError("No hay días en el Excel")
     total = len(dias)
-    yield 5    # datos OK
+    yield 5
 
-    # ── Selenium headless Hi-DPI ────────────────────────────────────────
+    # ── parámetros de captura Hi-DPI ────────────────────────────────────
+    WINDOW_W, WINDOW_H      = 2560, 1440   # px CSS de la ventana
+    DEVICE_SCALE            = 2            # --force-device-scale-factor
+    TARGET_DISPLAY_WIDTH    = 1920         # max-width de la <img>
+    dpi_scale = (WINDOW_W * DEVICE_SCALE) / TARGET_DISPLAY_WIDTH  # ≈ 2.67
+
+    # ── Selenium headless ───────────────────────────────────────────────
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    # la ventana será 2560×1440 CSS px  → 5120×2880 píxeles reales (2×)
-    opts.add_argument("--window-size=2560,1440")
-    opts.add_argument("--force-device-scale-factor=2")
-
-    service = Service("/usr/bin/chromedriver")   # instalado vía packages.txt
+    opts.add_argument(f"--window-size={WINDOW_W},{WINDOW_H}")
+    opts.add_argument(f"--force-device-scale-factor={DEVICE_SCALE}")
+    service = Service("/usr/bin/chromedriver")
     driver  = webdriver.Chrome(service=service, options=opts)
 
     imgs_b64 = {}
@@ -429,10 +434,11 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
         tmpdir = Path(tmpdir)
 
         for idx, dia in enumerate(dias, 1):
-            # generar mapa Folium
+            # ── generar mapa Folium con escalado de fuentes ────────────
             mapa = None
             for chunk in graficaTransportesDia(ciudad, dia, mes,
-                                               sensibilidad_color, zoom):
+                                               sensibilidad_color, zoom,
+                                               dpi_scale=dpi_scale):
                 if not isinstance(chunk, int):
                     mapa = chunk
 
@@ -442,15 +448,14 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
 
             # capturar PNG
             driver.get(tmp_html.as_uri())
-            time.sleep(3)                                 # espera tiles
+            time.sleep(3)      # espera tiles/fonts
             png_path = tmpdir / f"{ciudad}_{mes}_{dia}.png"
             driver.save_screenshot(str(png_path))
 
-            # a Base-64
-            imgs_b64[dia] = base64.b64encode(
-                png_path.read_bytes()).decode("utf-8")
+            # Base-64 para embebido
+            imgs_b64[dia] = base64.b64encode(png_path.read_bytes()).decode("utf-8")
 
-            # progreso 5 → 95 %
+            # progreso (5 → 95)
             yield 5 + int(idx / total * 90)
 
     driver.quit()
@@ -468,7 +473,7 @@ def exportar_mapa_con_imagenes_mes(ciudad, mes,
  #ctl{{position:absolute;top:20px;right:20px;background:#fff;padding:10px;
       border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,.2);z-index:9999;
       font-size:14px}}
- #map-img{{width:100%;max-width:1920px;height:auto}}
+ #map-img{{width:100%;max-width:{TARGET_DISPLAY_WIDTH}px;height:auto}}
 </style></head><body>
 <div id="ctl">
   Día:
