@@ -591,16 +591,18 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"/>
 <title>{ciudad_1} vs {ciudad_2}</title>
+html = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"/>
+<title>{ciudad_1} vs {ciudad_2}</title>
 <style>
- html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}
- #ctl{
-   position:fixed;top:10px;left:50%;transform:translateX(-50%);
-   background:#fff;padding:6px 10px;border-radius:8px;box-shadow:0 0 6px #0004;
-   font-family:sans-serif;font-size:14px;z-index:9}
- .row{display:flex;width:100vw;height:100vh}
- .cell{flex:0 0 50vw;height:100vh;overflow:hidden;position:relative}
- .cell img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
-</style>
+ html,body{{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden}}
+ #ctl{{position:fixed;top:10px;left:50%;transform:translateX(-50%);
+      background:#fff;padding:6px 10px;border-radius:8px;box-shadow:0 0 6px #0004;
+      font-family:sans-serif;font-size:14px;z-index:9}}
+ .row{{display:flex;width:100vw;height:100vh}}
+ .cell{{flex:0 0 50vw;height:100vh;overflow:hidden;position:relative}}
+ .cell img{{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}}
+</style></head><body>
 <div id="ctl">
  Día:
  <input type="range" id="sl" min="{s_min}" max="{s_max}" value="{s_min}"
