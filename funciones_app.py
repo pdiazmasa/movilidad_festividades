@@ -832,13 +832,12 @@ def exportar_mapa_gif(
 ):
     """
     Genera un GIF animado con capturas diarias del mes indicado.
-    Funciona como generator: emite progreso (0–100) y al final devuelve
-    la ruta al .gif o al HTML que lo envuelve.
+    Progreso: 0–100. Devuelve Path al .gif o al HTML que lo envuelve.
     """
     excel_path = DATOS_DIR / f"{ciudad.lower()}-{int(mes):02}.xlsx"
     gif_path   = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.gif"
 
-    # 0%: inicio
+    # 0%: existencia de Excel
     yield 0
     if not excel_path.exists():
         raise FileNotFoundError(f"No se encontró {excel_path}")
@@ -848,87 +847,72 @@ def exportar_mapa_gif(
     dias = sorted(df["dia"].dropna().unique())
     if not dias:
         raise ValueError("No hay días válidos en el archivo")
-
     total = len(dias)
-    # 5%: datos validados
-    yield 5
+    yield 5  # datos listos
 
-    # ── Selenium headless ───────────────────────────────────────────
+    # 5→10%: Selenium headless
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1920,1080")
-    service = Service("/usr/bin/chromedriver")
-    driver  = webdriver.Chrome(service=service, options=opts)
-    # 10%: Selenium listo
-    yield 10
+    driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=opts)
+    yield 10  # Selenium listo
 
     png_files = []
+    # ── dentro del with los PNG existen ─────────────────────
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
-
         for idx, dia in enumerate(dias, start=1):
-            # 1) Generar el mapa con el generator
+            # 1) Generar el mapa
             mapa = None
             for chunk in graficaTransportesDia(ciudad, dia, mes, sensibilidad_color, zoom):
                 if not isinstance(chunk, int):
                     mapa = chunk
 
-            # 2) Guardar el HTML temporal
+            # 2) Guardar HTML y capturar PNG
             tmp_html = tmpdir / f"{ciudad}_{mes}_{dia}.html"
             tmp_html.write_text(mapa.get_root().render(), encoding="utf-8")
-
-            # 3) Captura de pantalla
             driver.get(tmp_html.as_uri())
-            time.sleep(2)  # espera a que carguen los tiles
+            time.sleep(2)  # espera a que cargue tiles
             png_tmp = tmpdir / f"{ciudad}_{mes}_{dia}.png"
             driver.save_screenshot(str(png_tmp))
             png_files.append(png_tmp)
 
-            # 4) Reportar progreso (10→90%)
+            # 3) Reportar progreso 10→90%
             yield 10 + int(idx / total * 80)
 
+        # ── CREAR EL GIF ANTES DE SALIR DEL with ─────────────────
+        fps = 1 / duracion_segundos
+        with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
+            for png in png_files:
+                writer.append_data(imageio.imread(png))
+        yield  ninety_five := 90  # GIF ya creado
+
+    # fuera del with: tmpdir se ha borrado, pero el GIF persiste
     driver.quit()
 
-    # ── Crear el GIF ────────────────────────────────────────────────
-    fps = 1 / duracion_segundos
-    with imageio.get_writer(gif_path, mode="I", fps=fps, loop=0) as writer:
-        for png in png_files:
-            writer.append_data(imageio.imread(png))
-    # 95%: GIF creado
-    yield 95
-
-    # ── (Opcional) envolver en HTML ─────────────────────────────────
+    # ── (Opcional) envolver en HTML ─────────────────────────
     if html_wrapper:
         html_path = RESULTADOS_DIR / f"gif_{ciudad}_{int(mes):02}.html"
         html_code = f"""<!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="utf-8">
-  <title>GIF – {ciudad.capitalize()} {mes}</title>
-  <style>
-    body {{
-      margin:0; display:flex; justify-content:center; align-items:center;
-      height:100vh; background:#000;
-    }}
-    img {{ max-width:100%; height:auto; }}
-  </style>
-</head>
-<body>
+<head><meta charset="utf-8"/><title>GIF – {ciudad.capitalize()} {mes}</title>
+<style>body{{margin:0;display:flex;justify-content:center;align-items:center;
+             height:100vh;background:#000}}img{{max-width:100%;height:auto}}</style>
+</head><body>
   <img src="{gif_path.name}" alt="Mapa GIF">
-</body>
-</html>"""
+</body></html>"""
         html_path.write_text(html_code, encoding="utf-8")
         target = html_path
     else:
         target = gif_path
 
+    # 95→100%: abrir y devolver
     if open_browser:
         webbrowser.open_new_tab(target.as_uri())
-
-    # 100%: terminado, devolver ruta
     yield target
+
 
 
 
