@@ -182,25 +182,26 @@ def detectar_campo_provincia(gdf, df_transport):
 # In[79]:
 
 
+from branca.element import Template, MacroElement
+
 def graficaTransportesDia(
         ciudad, dia, mes,
         sensibilidad_color: int = 3,
         zoom: int = 6,
         dpi_scale: float = 1.0,        # escala para capturas Hi-DPI
-        legend_side: str = "left",     # "left" o "right" para la posición de la leyenda
+        legend_side: str = "left",     # "left" o "right"
 ):
     """
     Genera un folium.Map.
     Progreso 0–100; al final devuelve el mapa.
-    dpi_scale aumenta proporcionalmente el tamaño de fuentes
-    cuando se capturan PNG de alta resolución.
-    legend_side controla si la leyenda va a la izquierda o la derecha.
+    dpi_scale escala los textos al capturar PNG.
+    legend_side controla la posición de la leyenda.
     """
     mes = int(mes)
     transporte_file = DATOS_DIR / f"{ciudad.lower()}-{mes:02}.xlsx"
     georef_file     = DATOS_DIR / "georef-spain-provincia.geojson"
 
-    # 0%: inicio
+    # 0% inicio
     yield 0
     if not georef_file.exists():
         raise FileNotFoundError(georef_file)
@@ -208,19 +209,19 @@ def graficaTransportesDia(
         raise FileNotFoundError(transporte_file)
     yield 10
 
-    # 30%: cargar datos
+    # 30% datos
     gdf_provincias = gpd.read_file(georef_file)
     df_transporte  = pd.read_excel(transporte_file)
     yield 30
 
-    # filtrar día y agregar
+    # Filtrar por día
     df_dia = df_transporte[df_transporte["dia"] == dia]
     if df_dia.empty:
         raise ValueError(f"No hay datos para el día {dia}")
     df_agg = (
         df_dia.groupby("provincia origen", as_index=False)["viajes"].sum()
-              .assign(prov_std=lambda d: d["provincia origen"]
-                                         .apply(standardize_province_name))
+             .assign(prov_std=lambda d: d["provincia origen"]
+                                        .apply(standardize_province_name))
     )
     best_field = detectar_campo_provincia(gdf_provincias, df_agg)
     if best_field is None:
@@ -230,14 +231,14 @@ def graficaTransportesDia(
     gdf_merged["viajes"] = gdf_merged["viajes"].fillna(0)
     yield 50
 
-    # crear mapa base
+    # Crear mapa
     max_viajes = gdf_merged["viajes"].max()
     centro = gdf_merged.to_crs("EPSG:3857").geometry.centroid.unary_union.centroid
     ctr_ll = gpd.GeoSeries([centro], crs="EPSG:3857").to_crs("EPSG:4326").iloc[0]
     mapa = folium.Map(location=[ctr_ll.y, ctr_ll.x], zoom_start=zoom)
     yield 60
 
-    # ── overlay superior (título) ───────────────────────────────────────
+    # Overlay superior
     font_sup = round(14 * dpi_scale, 1)
     tpl_sup = f"""
     {{% macro html(this, kwargs) %}}
@@ -264,7 +265,7 @@ def graficaTransportesDia(
     mapa.get_root().add_child(m_sup)
     yield 70
 
-    # ── capa GeoJSON con estilo ─────────────────────────────────────────
+    # Capa GeoJson
     estudio_std = standardize_province_name(ciudad)
     def style_function(feat):
         prov = standardize_province_name(feat["properties"].get(best_field, ""))
@@ -283,12 +284,11 @@ def graficaTransportesDia(
         )
     ).add_to(mapa)
 
-    # ── leyenda ajustable ───────────────────────────────────────────────
+    # Leyenda flotante
     legend_scale  = dpi_scale * 0.8
     font_legend   = round(13 * legend_scale, 1)
     legend_width  = int(260 * legend_scale)
-    # posicion según legend_side
-    side_css = "left:10px;" if legend_side=="left" else "right:10px;"
+    side_css      = "left:10px;" if legend_side=="left" else "right:10px;"
     legend_html = f"""
     <div style="
         position:fixed;
@@ -313,7 +313,7 @@ def graficaTransportesDia(
     mapa.get_root().html.add_child(folium.Element(legend_html))
     yield 90
 
-    # 100 %: devolver mapa
+    # 100% devolver mapa
     yield mapa
 
 
@@ -521,19 +521,16 @@ function chg(v){{
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from tempfile import TemporaryDirectory
-from pathlib import Path
-import base64, json, time, pandas as pd, os, webbrowser
 
 def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
                    ciudad_2, mes_2, sensibilidad_2,
                    zoom: int = 6):
     """
-    Captura dos series de mapas diarios (960×1080 CSS px, escala 2×) y
-    genera un HTML responsive con slider que muestra ambos mapas
-    recortados (50 % del ancho cada uno).  Devuelve Path al HTML.
+    Captura dos series de mapas diarios y construye un HTML responsive
+    con ambos mapas lado a lado. Las leyendas se generan a la derecha
+    de cada mitad para que no se corten.
+    Progreso 0–100; al final devuelve el Path al HTML.
     """
-
-    # 0 % ── comprobaciones básicas
     yield 0
     f1 = DATOS_DIR / f"{ciudad_1.lower()}-{int(mes_1):02}.xlsx"
     f2 = DATOS_DIR / f"{ciudad_2.lower()}-{int(mes_2):02}.xlsx"
@@ -542,7 +539,6 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
         raise FileNotFoundError("Alguno de los Excel no existe")
     yield 5
 
-    # 15 % ── determinar días comunes
     d1 = sorted(pd.read_excel(f1)["dia"].dropna().unique())
     d2 = sorted(pd.read_excel(f2)["dia"].dropna().unique())
     s_min, s_max = max(d1[0], d2[0]), min(d1[-1], d2[-1])
@@ -551,10 +547,10 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     dias = list(range(int(s_min), int(s_max) + 1))
     yield 15
 
-    # parámetros de captura
-    CSS_W, CSS_H = 960, 1080     # cada mitad
-    DEV_SCALE    = 2             # Hi-DPI
-    dpi_scale    = 0.90          # overlays pequeños
+    # Parámetros de Selenium para capturas 960×1080, escala 2×
+    CSS_W, CSS_H = 960, 1080
+    DEV_SCALE    = 2
+    dpi_scale    = 0.90  # lo has subido al 0.90
 
     opts = Options()
     opts.add_argument("--headless=new")
@@ -564,20 +560,21 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     opts.add_argument(f"--force-device-scale-factor={DEV_SCALE}")
     driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"),
                               options=opts)
-    yield 20  # Selenium listo
+    yield 20
 
     L, R = {}, {}
-    total_steps = len(dias) * 2
-    step = 0
+    total = len(dias) * 2
+    step  = 0
 
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
         for dia in dias:
-            # ----- mapa izquierda -----
+            # mapa izquierda con leyenda a la derecha
             mapa1 = next(ch for ch in
                          graficaTransportesDia(ciudad_1, dia, mes_1,
                                                sensibilidad_1, zoom,
-                                               dpi_scale=dpi_scale)
+                                               dpi_scale=dpi_scale,
+                                               legend_side="right")
                          if not isinstance(ch, int))
             h1 = tmpdir / f"L_{dia}.html"
             h1.write_text(mapa1.get_root().render(), encoding="utf-8")
@@ -585,15 +582,14 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
             p1 = tmpdir / f"L_{dia}.png"
             driver.save_screenshot(str(p1))
             L[str(dia)] = base64.b64encode(p1.read_bytes()).decode()
+            step += 1; yield 20 + int(step/total*75)
 
-            step += 1
-            yield 20 + int(step / total_steps * 75)
-
-            # ----- mapa derecha -----
+            # mapa derecha con leyenda a la derecha
             mapa2 = next(ch for ch in
                          graficaTransportesDia(ciudad_2, dia, mes_2,
                                                sensibilidad_2, zoom,
-                                               dpi_scale=dpi_scale)
+                                               dpi_scale=dpi_scale,
+                                               legend_side="right")
                          if not isinstance(ch, int))
             h2 = tmpdir / f"R_{dia}.html"
             h2.write_text(mapa2.get_root().render(), encoding="utf-8")
@@ -601,14 +597,11 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
             p2 = tmpdir / f"R_{dia}.png"
             driver.save_screenshot(str(p2))
             R[str(dia)] = base64.b64encode(p2.read_bytes()).decode()
+            step += 1; yield 20 + int(step/total*75)
 
-            step += 1
-            yield 20 + int(step / total_steps * 75)
+    driver.quit(); yield 95
 
-    driver.quit()
-    yield 95  # capturas completas
-
-    # ---------- HTML final ----------
+    # HTML final responsive (50% cada imagen)
     html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"/>
 <title>{ciudad_1} vs {ciudad_2}</title>
@@ -632,15 +625,12 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
  <div class="cell"><img id="R" src="data:image/png;base64,{R[str(s_min)]}"></div>
 </div>
 <script>
-const L={{}}; const R={{}};  // rellenamos abajo
-Object.assign(L, {json.dumps(L)});
-Object.assign(R, {json.dumps(R)});
 const Limg=document.getElementById('L'),
       Rimg=document.getElementById('R'),
-      lbl=document.getElementById('lbl');
-function chg(v){{lbl.textContent=v;
-  Limg.src='data:image/png;base64,'+L[v];
-  Rimg.src='data:image/png;base64,'+R[v];}}
+      lbl=document.getElementById('lbl'),
+      L={json.dumps(L)}, R={json.dumps(R)};
+function chg(v){{lbl.textContent=v;Limg.src='data:image/png;base64,'+L[v];
+                 Rimg.src='data:image/png;base64,'+R[v];}}
 </script></body></html>"""
 
     out.write_text(html, encoding="utf-8")
