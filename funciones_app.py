@@ -539,7 +539,7 @@ def comparar_mapas(ciudad_1, mes_1, sensibilidad_1,
     # ── Configurar Selenium headless ──────────────────────────────────
     chrome_opts = Options()
     chrome_opts.add_argument("--headless")
-    chrome_opts.add_argument("--window-size=960,1080")
+    chrome_opts.add_argument("--window-size=1920,1080")
     driver = webdriver.Chrome(options=chrome_opts)
     yield 20  # Selenium listo
 
