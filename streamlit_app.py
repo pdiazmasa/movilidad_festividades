@@ -110,7 +110,7 @@ st.markdown(descs[choice])
 
 # -------- 1) Mapa interactivo de un día --------
 if choice == menu[0]:
-    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona, "Cuenca (prueba)"])
+    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona"])
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
