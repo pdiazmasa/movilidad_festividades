@@ -105,7 +105,6 @@ if choice == menu[0]:
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
-    z = st.number_input("Zoom", 4, 10, 6)
     if st.button("Generar mapa"):
         st.session_state["params_dia"] = (c, d, m_, s, z)
         st.session_state["mapa_dia"] = cache_mapa(c, d, m_, s, z)
