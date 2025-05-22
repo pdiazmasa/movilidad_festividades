@@ -55,13 +55,13 @@ descs = {
     menu[0]: "Colorea las provincias según volumen de viajes en un día concreto.",
     menu[1]: """Genera un HTML con todos los días y un slider para navegar entre ellos.
     Ten en cuenta que puede tardar un rato y puede pesar alrededor de 600MB""",
-    menu[2]: "Toma capturas PNG diarias e incrústalas en un HTML con slider.
-    Ten en cuenta que puede tardar un rato y puede pesar alrededor de 300MB",
-    menu[3]: "Muestra lado a lado dos provincias para un rango de días común.
-    Ten en cuenta que puede tardar un rato y puede pesar alrededor de 600MB",
+    menu[2]: """Toma capturas PNG diarias e incrústalas en un HTML con slider.
+    Ten en cuenta que puede tardar un rato y puede pesar alrededor de 300MB""",
+    menu[3]: """Muestra lado a lado dos provincias para un rango de días común.
+    Ten en cuenta que puede tardar un rato y puede pesar alrededor de 600MB""",
     menu[4]: "Colorea según viajes por mil habitantes, resaltando la provincia destino.",
-    menu[5]: "Crea un GIF animado con la evolución diaria del mes.
-    Ten en cuenta que puede tardar un rato.",
+    menu[5]: """Crea un GIF animado con la evolución diaria del mes.
+    Ten en cuenta que puede tardar un rato.""",
 }
 
 # -------- Utilidades --------
