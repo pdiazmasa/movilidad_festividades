@@ -145,11 +145,11 @@ elif choice == menu[2]:
 # -------- 4) Comparar dos mapas --------
 elif choice == menu[3]:
     provincia_label_1 = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
-    c1 = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label
+    c1 = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label_1
     m1 = st.number_input("Mes A", 1, 12, 1, key="m1")
     s1 = st.number_input("Sensibilidad A", 1, 10, 3, key="s1")
     provincia_label_2 = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
-    c2 = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label
+    c2 = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label_2
     m2 = st.number_input("Mes B", 1, 12, 1, key="m2")
     s2 = st.number_input("Sensibilidad B", 1, 10, 3, key="s2")
     z  = st.number_input("Zoom", 4, 10, 6)
