@@ -1,13 +1,3 @@
-# streamlit_app.py – descargas garantizadas
-"""
-Aplicación Streamlit para visualizar la movilidad interprovincial y ofrecer un
-**botón de descarga en todos los modos**:
-
-* Mapa de un día → descarga del HTML incrustado.
-* Modo relativo → descarga del HTML incrustrado.
-* Resto de modos → descarga del archivo generado (HTML o GIF).
-"""
-
 import sys
 import subprocess
 import mimetypes
@@ -110,7 +100,7 @@ st.markdown(descs[choice])
 
 # -------- 1) Mapa interactivo de un día --------
 if choice == menu[0]:
-    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona"])
+    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
