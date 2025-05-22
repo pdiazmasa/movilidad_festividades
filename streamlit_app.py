@@ -104,7 +104,7 @@ st.markdown(descs[choice])
 
 # -------- 1) Mapa interactivo de un día --------
 if choice == menu[0]:
-    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
+    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Sevilla", "Cuenca (prueba con enero de tres días)"])
     c = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
@@ -121,7 +121,7 @@ if choice == menu[0]:
 
 # -------- 2) HTML mensual interactivo --------
 elif choice == menu[1]:
-    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
+    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Sevilla", "Cuenca (prueba con enero de tres días)"])
     c = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
@@ -132,7 +132,7 @@ elif choice == menu[1]:
 
 # -------- 3) HTML mensual con imágenes --------
 elif choice == menu[2]:
-    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
+    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Sevilla", "Cuenca (prueba con enero de tres días)"])
     c = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
@@ -144,11 +144,11 @@ elif choice == menu[2]:
 
 # -------- 4) Comparar dos mapas --------
 elif choice == menu[3]:
-    provincia_label_1 = st.selectbox("Provincia A", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
+    provincia_label_1 = st.selectbox("Provincia A", ["Navarra", "Valencia", "Sevilla", "Cuenca (prueba con enero de tres días)"])
     c1 = "cuenca" if provincia_label_1 == "Cuenca (prueba con enero de tres días)" else provincia_label_1
     m1 = st.number_input("Mes A", 1, 12, 1, key="m1")
     s1 = st.number_input("Sensibilidad A", 1, 10, 3, key="s1")
-    provincia_label_2 = st.selectbox("Provincia B", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
+    provincia_label_2 = st.selectbox("Provincia B", ["Navarra", "Valencia", "Sevilla", "Cuenca (prueba con enero de tres días)"])
     c2 = "cuenca" if provincia_label_2 == "Cuenca (prueba con enero de tres días)" else provincia_label_2
     m2 = st.number_input("Mes B", 1, 12, 1, key="m2")
     s2 = st.number_input("Sensibilidad B", 1, 10, 3, key="s2")
@@ -160,7 +160,7 @@ elif choice == menu[3]:
 
 # -------- 5) Mapa relativo --------
 elif choice == menu[4]:
-    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
+    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Sevilla", "Cuenca (prueba con enero de tres días)"])
     c = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
@@ -174,7 +174,7 @@ elif choice == menu[4]:
 
 # -------- 6) GIF animado --------
 elif choice == menu[5]:
-    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba con enero de tres días)"])
+    provincia_label = st.selectbox("Provincia", ["Navarra", "Valencia", "Sevilla", "Cuenca (prueba con enero de tres días)"])
     c = "cuenca" if provincia_label == "Cuenca (prueba con enero de tres días)" else provincia_label
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
