@@ -174,7 +174,7 @@ elif choice == menu[4]:
 
 # -------- 6) GIF animado --------
 elif choice == menu[5]:
-    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona"])
+    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba)"])
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     z = st.number_input("Zoom", 4, 10, 6)
