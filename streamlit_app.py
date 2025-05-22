@@ -106,7 +106,7 @@ if choice == menu[0]:
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     if st.button("Generar mapa"):
-        st.session_state["params_dia"] = (c, d, m_, s, z)
+        st.session_state["params_dia"] = (c, d, m_, s, z=6)
         st.session_state["mapa_dia"] = cache_mapa(c, d, m_, s, z)
     if st.session_state["mapa_dia"] is not None:
         embed_folium(st.session_state["mapa_dia"])
