@@ -110,7 +110,7 @@ st.markdown(descs[choice])
 
 # -------- 1) Mapa interactivo de un día --------
 if choice == menu[0]:
-    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona"])
+    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona, "Cuenca (prueba)"])
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
@@ -126,7 +126,7 @@ if choice == menu[0]:
 
 # -------- 2) HTML mensual interactivo --------
 elif choice == menu[1]:
-    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona"])
+    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona, "Cuenca (prueba)"])
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     if st.button("Generar HTML"):
@@ -136,7 +136,7 @@ elif choice == menu[1]:
 
 # -------- 3) HTML mensual con imágenes --------
 elif choice == menu[2]:
-    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona"])
+    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona, "Cuenca (prueba)"])
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
     z = st.number_input("Zoom", 4, 10, 7)
@@ -147,10 +147,10 @@ elif choice == menu[2]:
 
 # -------- 4) Comparar dos mapas --------
 elif choice == menu[3]:
-    c1 = st.selectbox("Provincia A", ["Navarra", "Valencia", "Pamplona"])
+    c1 = st.selectbox("Provincia A", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba)"])
     m1 = st.number_input("Mes A", 1, 12, 1, key="m1")
     s1 = st.number_input("Sensibilidad A", 1, 10, 3, key="s1")
-    c2 = st.selectbox("Provincia B", ["Navarra", "Valencia", "Pamplona"])
+    c2 = st.selectbox("Provincia B", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba)"])
     m2 = st.number_input("Mes B", 1, 12, 1, key="m2")
     s2 = st.number_input("Sensibilidad B", 1, 10, 3, key="s2")
     z  = st.number_input("Zoom", 4, 10, 6)
@@ -161,7 +161,7 @@ elif choice == menu[3]:
 
 # -------- 5) Mapa relativo --------
 elif choice == menu[4]:
-    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona"])
+    c = st.selectbox("Provincia", ["Navarra", "Valencia", "Pamplona", "Cuenca (prueba)"])
     d = st.number_input("Día", 1, 31, 1)
     m_ = st.number_input("Mes", 1, 12, 1)
     s = st.number_input("Sensibilidad color", 1, 10, 3)
